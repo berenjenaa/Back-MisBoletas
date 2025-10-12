@@ -94,14 +94,27 @@ def update_product(db: Session, product: Product) -> Producto:
 # ===== ELIMINAR PRODUCTO =====
 def delete_product(db: Session, product_id: int, user_id: int) -> dict:
     """Elimina un producto verificando ownership."""
+    from app.services.gcs_service import get_gcs_service
+    from app.models.documento import Documento
+
     product = db.query(Producto).filter(Producto.ProductoID == product_id).first()
-    
+
     if not product:
         raise HTTPException(404, "Producto no encontrado")
-    
+
     check_product_ownership(product, user_id)
-    
+
+    # Eliminar archivos de GCS asociados a los documentos del producto
+    gcs_service = get_gcs_service()
+    if gcs_service:
+        documentos = db.query(Documento).filter(Documento.ProductoID == product_id).all()
+        for doc in documentos:
+            try:
+                gcs_service.delete_file(doc.BlobName)
+            except Exception as e:
+                print(f"[WARN] No se pudo eliminar archivo GCS '{doc.BlobName}': {e}")
+
     db.delete(product)
     db.commit()
-    
+
     return {"message": "Producto eliminado correctamente"}

@@ -54,27 +54,27 @@ def create_tables():
                     conn.execute(text("DROP TABLE IF EXISTS productocategorias CASCADE;"))
                     conn.execute(text("DROP TABLE IF EXISTS categorias CASCADE;"))
                     conn.commit()
-                    print("✅ Tablas de categorías eliminadas")
+                    print("Tablas de categorías eliminadas")
     except Exception as e:
         print(f"⚠️  Error al verificar tablas de categorías: {e}")
     
     # 3. Crear todas las tablas definidas en los modelos
     Base.metadata.create_all(bind=engine)
-    print("✅ Tablas creadas exitosamente o ya existentes.")
+    print(" Tablas creadas exitosamente o ya existentes.")
     
     # 4. Mostrar tablas existentes
     try:
         inspector = inspect(engine)
         tables = inspector.get_table_names()
-        print(f"📊 Tablas en la base de datos: {', '.join(tables)}")
+        print(f" Tablas en la base de datos: {', '.join(tables)}")
     except Exception as e:
-        print(f"⚠️  No se pudieron listar las tablas: {e}")
+        print(f"No se pudieron listar las tablas: {e}")
 
 # Crear aplicación FastAPI
 app = FastAPI(
     title="MisBoletas API",
-    description="API optimizada para gestión de productos, garantías y boletas con Google Cloud Storage.",
-    version="2.0.0",
+    description="API optimizada para gestión de productos, garantías y boletas.",
+    version="1.0.0",
     on_startup=[create_tables]  # Crear tablas al iniciar el servidor
 )
 
