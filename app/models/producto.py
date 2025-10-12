@@ -10,20 +10,20 @@ from app.db.session import Base
 class Producto(Base):
     __tablename__ = "productos"
     
-    # Clave Primaria Autoincremental
-    productoid = Column(Integer, primary_key=True, index=True)
+    # Clave Primaria Autoincremental  
+    ProductoID = Column("productoid", Integer, primary_key=True, index=True)
     
     # Campos de datos
-    nombreproducto = Column(String(150), nullable=False)     
-    fechacompra = Column(Date)
-    duraciongarantia = Column(Integer)
-    marca = Column(String(100))                              
-    modelo = Column(String(100))                            
-    tienda = Column(String(100))                          
-    notas = Column(Text)                                    
+    NombreProducto = Column("nombreproducto", String(150), nullable=False)     
+    FechaCompra = Column("fechacompra", Date)
+    DuracionGarantia = Column("duraciongarantia", Integer)
+    Marca = Column("marca", String(100))                              
+    Modelo = Column("modelo", String(100))                            
+    Tienda = Column("tienda", String(100))                          
+    Notas = Column("notas", Text)                                    
     
     # Clave Foránea al Usuario
-    usuarioid = Column(Integer, ForeignKey("usuarios.usuarioid", ondelete="CASCADE"), nullable=False)
+    UsuarioID = Column("usuarioid", Integer, ForeignKey("usuarios.usuarioid", ondelete="CASCADE"), nullable=False)
     
     # Relaciones (Relationships)
     # Relación uno-a-muchos: El producto pertenece a un solo usuario
@@ -36,9 +36,14 @@ class Producto(Base):
         cascade="all, delete-orphan"
     )
     
-    # Relación uno-a-muchos: Un producto puede tener múltiples categorías
-    categorias = relationship(
-        "Categoria",
+    # Relación uno-a-muchos: Un producto puede tener múltiples categorías asignadas (M2M a través de ProductoCategoria)
+    producto_categorias = relationship(
+        "ProductoCategoria",
         back_populates="producto",
         cascade="all, delete-orphan"
     )
+    
+    @property
+    def categorias(self):
+        """Propiedad computada para obtener las categorías del producto"""
+        return [pc.categoria for pc in self.producto_categorias]

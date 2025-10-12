@@ -12,15 +12,21 @@ class Usuario(Base):
     __tablename__ = "usuarios"
 
     # Columnas principales
-    usuarioid = Column(Integer, primary_key=True, index=True)
-    nombreusuario = Column(String(100), nullable=False)
-    email = Column(String(150), unique=True, nullable=False)
-    contrasenahash = Column(String, nullable=False)
-    fecharegistro = Column(DateTime(timezone=True), server_default=func.now())
+    UsuarioID = Column("usuarioid", Integer, primary_key=True, index=True)
+    NombreUsuario = Column("nombreusuario", String(100), nullable=False)
+    Email = Column("email", String(150), unique=True, nullable=False)
+    ContrasenaHash = Column("contrasenahash", String, nullable=False)
+    FechaRegistro = Column("fecharegistro", DateTime(timezone=True), server_default=func.now())
 
     # Relaciones
     productos = relationship(
         "Producto",
+        back_populates="usuario",
+        cascade="all, delete-orphan"
+    )
+    
+    categorias = relationship(
+        "Categoria",
         back_populates="usuario",
         cascade="all, delete-orphan"
     )

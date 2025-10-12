@@ -1,42 +1,136 @@
-from app.schemas.categorias import Categoria
+"""
+CRUD para Categorías usando funciones PostgreSQL.
+"""
+
+from sqlalchemy.orm import Session
+from sqlalchemy import text
 from fastapi import HTTPException
+from typing import List, Optional
+from app.schemas.categorias import CategoriaResponse
 
-# Lista temporal de categorías para almacenamiento en memoria
-categorias_list = [
-    Categoria(CategoriaID=1, NombreCategoria="Electrónica", NotasCategoria="Dispositivos y gadgets", productos=[]),
-    Categoria(CategoriaID=2, NombreCategoria="Hogar", NotasCategoria="Artículos para el hogar", productos=[])
-]
+def create_categoria(
+    db: Session,
+    producto_id: int,
+    user_id: int,
+    categoria: str
+) -> CategoriaResponse:
+    """Crea una nueva categoría usando fn_createcategoria."""
+    try:
+        result = db.execute(
+            text("""
+                SELECT * FROM fn_createcategoria(:categoria, :producto_id, :user_id)
+            """),
+            {
+                "categoria": categoria,
+                "producto_id": producto_id,
+                "user_id": user_id
+            }
+        )
+        
+        cat = result.fetchone()
+        db.commit()
+        
+        if not cat:
+            raise HTTPException(status_code=400, detail="Error al crear categoría")
+            
+        return CategoriaResponse(
+            id=cat.id,
+            productoid=cat.productoid,
+            categoria=cat.categoria
+        )
+        
+    except Exception as e:
+        db.rollback()
+        error_message = str(e)
+        if "ya existe" in error_message:
+            raise HTTPException(status_code=400, detail="Esta categoría ya existe para este producto")
+        if "no encontrado" in error_message or "no autorizado" in error_message:
+            raise HTTPException(status_code=404, detail=error_message)
+        raise HTTPException(status_code=500, detail=f"Error al crear categoría: {error_message}")
 
-# Función para buscar una categoría por ID
-def search_categoria(categoria_id: int):
-    for c in categorias_list:
-        if c.CategoriaID == categoria_id:
-            return c
-    return None 
+def get_categorias_by_product(
+    db: Session,
+    producto_id: int,
+    user_id: int
+) -> List[CategoriaResponse]:
+    """Obtiene todas las categorías de un producto usando fn_getcategoriasbyproduct."""
+    try:
+        result = db.execute(
+            text("""
+                SELECT * FROM fn_getcategoriasbyproduct(:producto_id, :user_id)
+            """),
+            {
+                "producto_id": producto_id,
+                "user_id": user_id
+            }
+        )
+        
+        categorias = result.fetchall()
+        
+        return [
+            CategoriaResponse(
+                id=cat.id,
+                productoid=cat.productoid,
+                categoria=cat.categoria
+            ) for cat in categorias
+        ]
+        
+    except Exception as e:
+        error_message = str(e)
+        if "no encontrado" in error_message or "no autorizado" in error_message:
+            raise HTTPException(status_code=404, detail=error_message)
+        raise HTTPException(status_code=500, detail=f"Error al obtener categorías: {error_message}")
 
-# Función para crear una nueva categoría
-def create_categoria(categoria: Categoria):
-    if search_categoria(categoria.CategoriaID):
-        raise HTTPException(status_code=400, detail="Categoría ya existe")
-    categorias_list.append(categoria)
-    return categoria
+def get_user_categorias(db: Session, user_id: int) -> List[dict]:
+    """Obtiene todas las categorías únicas del usuario con su conteo usando fn_getuniqueusercategorias."""
+    try:
+        result = db.execute(
+            text("""
+                SELECT * FROM fn_getuniqueusercategorias(:user_id)
+            """),
+            {"user_id": user_id}
+        )
+        
+        categorias = result.fetchall()
+        
+        return [
+            {
+                "categoria": cat.categoria,
+                "count": cat.count
+            } for cat in categorias
+        ]
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener categorías del usuario: {str(e)}")
 
-# Función para actualizar una categoría existente
-def update_categoria(categoria: Categoria):
-    for index, c in enumerate(categorias_list):
-        if c.CategoriaID == categoria.CategoriaID:
-            categorias_list[index] = categoria
-            return categoria
-    raise HTTPException(status_code=404, detail="Categoría no encontrada")
-
-# Función para eliminar una categoría por ID
-def delete_categoria(categoria_id: int):
-    for index, c in enumerate(categorias_list):
-        if c.CategoriaID == categoria_id:
-            del categorias_list[index]
-            return {"message": "Categoría eliminada"}
-    raise HTTPException(status_code=404, detail="Categoría no encontrada")
-
-# Función para obtener todas las categorías
-def get_all_categorias():
-    return categorias_list
+def delete_categoria(
+    db: Session,
+    categoria_id: int,
+    user_id: int
+) -> dict:
+    """Elimina una categoría usando fn_deletecategoria."""
+    try:
+        result = db.execute(
+            text("""
+                SELECT fn_deletecategoria(:categoria_id, :user_id) as message
+            """),
+            {
+                "categoria_id": categoria_id,
+                "user_id": user_id
+            }
+        )
+        
+        response = result.fetchone()
+        db.commit()
+        
+        if not response:
+            raise HTTPException(status_code=404, detail="Categoría no encontrada")
+            
+        return {"message": response.message}
+        
+    except Exception as e:
+        db.rollback()
+        error_message = str(e)
+        if "no encontrada" in error_message or "no autorizado" in error_message:
+            raise HTTPException(status_code=404, detail=error_message)
+        raise HTTPException(status_code=500, detail=f"Error al eliminar categoría: {error_message}")

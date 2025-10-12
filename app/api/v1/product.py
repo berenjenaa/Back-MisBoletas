@@ -1,17 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException
+"""
+Endpoints API simplificados para Productos.
+"""
+
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from typing import List
 
-from app.schemas.product import ProductRead, ProductCreate, ProductUpdate
+from app.schemas.product import ProductRead, ProductCreate, ProductUpdate, Product
 from app.schemas.user import UserRead
 from app.crud import product as crud_product
 from app.db.session import get_db
 from app.api.dependencies import get_current_user
 
-# Router para endpoints de productos
 router = APIRouter()
-
-# ===== ENDPOINTS SIMPLIFICADOS =====
 
 @router.get("/products", response_model=List[ProductRead])
 async def get_products(
@@ -19,7 +20,8 @@ async def get_products(
     current_user: UserRead = Depends(get_current_user)
 ):
     """Obtiene todos los productos del usuario autenticado."""
-    return crud_product.get_products_by_user(db, current_user.idUsuario)
+    products = crud_product.get_products_by_user(db, current_user.idUsuario)
+    return [ProductRead.model_validate(p) for p in products]
 
 @router.get("/products/{product_id}", response_model=ProductRead)
 async def get_product(
@@ -28,7 +30,8 @@ async def get_product(
     current_user: UserRead = Depends(get_current_user)
 ):
     """Obtiene un producto específico por ID."""
-    return crud_product.search_product_wrapper(db, product_id, current_user.idUsuario)
+    product = crud_product.get_product_by_id(db, product_id, current_user.idUsuario)
+    return ProductRead.model_validate(product)
 
 @router.post("/products", response_model=ProductRead, status_code=201)
 async def create_product(
@@ -37,7 +40,9 @@ async def create_product(
     current_user: UserRead = Depends(get_current_user)
 ):
     """Crea un nuevo producto asociado al usuario autenticado."""
-    from app.schemas.product import Product
+    print(f"📝 Creando producto para usuario {current_user.idUsuario}")
+    print(f"📋 Datos recibidos: {product_data.model_dump()}")
+    
     product = Product(
         ProductoID=0,
         NombreProducto=product_data.NombreProducto,
@@ -49,7 +54,16 @@ async def create_product(
         Notas=product_data.Notas or "",
         UsuarioID=current_user.idUsuario
     )
-    return crud_product.create_product_wrapper(db, product)
+    
+    # Crear producto y asignar categoría si se proporcionó
+    created = crud_product.create_product(db, product, categoria_id=product_data.categoria_id)
+    
+    if product_data.categoria_id:
+        print(f"✅ Producto creado y asignado a categoría {product_data.categoria_id}")
+    else:
+        print(f"✅ Producto creado sin categoría")
+    
+    return ProductRead.model_validate(created)
 
 @router.put("/products/{product_id}", response_model=ProductRead)
 async def update_product(
@@ -59,23 +73,23 @@ async def update_product(
     current_user: UserRead = Depends(get_current_user)
 ):
     """Actualiza un producto existente del usuario autenticado."""
-    # Obtener producto existente (con verificación de ownership)
-    existing_product = crud_product.search_product_wrapper(db, product_id, current_user.idUsuario)
+    # Obtener producto existente
+    existing = crud_product.get_product_by_id(db, product_id, current_user.idUsuario)
     
-    # Crear producto actualizado
-    from app.schemas.product import Product
+    # Actualizar con nuevos datos
     updated_product = Product(
         ProductoID=product_id,
-        NombreProducto=product_data.NombreProducto or existing_product.NombreProducto,
-        FechaCompra=product_data.FechaCompra or existing_product.FechaCompra,
-        DuracionGarantia=product_data.DuracionGarantia or existing_product.DuracionGarantia,
-        Marca=product_data.Marca or existing_product.Marca,
-        Modelo=product_data.Modelo or existing_product.Modelo,
-        Tienda=product_data.Tienda or existing_product.Tienda,
-        Notas=product_data.Notas or existing_product.Notas,
+        NombreProducto=product_data.NombreProducto or existing.NombreProducto,
+        FechaCompra=product_data.FechaCompra or existing.FechaCompra,
+        DuracionGarantia=product_data.DuracionGarantia or existing.DuracionGarantia,
+        Marca=product_data.Marca or existing.Marca,
+        Modelo=product_data.Modelo or existing.Modelo,
+        Tienda=product_data.Tienda or existing.Tienda,
+        Notas=product_data.Notas or existing.Notas,
         UsuarioID=current_user.idUsuario
     )
-    return crud_product.update_product(db, updated_product)
+    updated = crud_product.update_product(db, updated_product)
+    return ProductRead.model_validate(updated)
 
 @router.delete("/products/{product_id}")
 async def delete_product(

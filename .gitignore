@@ -35,6 +35,12 @@ Thumbs.db
 *.key
 *.pem
 
+# ===== CREDENCIALES DE GOOGLE CLOUD STORAGE =====
+*.json
+gcs-credentials.json
+google-cloud-credentials.json
+*-credentials.json
+
 # Archivos temporales de Uvicorn/FastAPI
 *.pid
 *.sock

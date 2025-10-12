@@ -1,6 +1,19 @@
 from pydantic import BaseModel, Field
 from datetime import date
-from typing import Optional
+from typing import Optional, List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.schemas.categorias import Categoria
+
+# ===== SCHEMA SIMPLIFICADO PARA CATEGORÍA EN PRODUCTO =====
+class CategoriaSimple(BaseModel):
+    """Schema simplificado de categoría para incluir en productos"""
+    CategoriaID: int
+    NombreCategoria: str
+    Color: str
+    
+    class Config:
+        from_attributes = True
 
 # ===== SCHEMAS CORREGIDOS - SIN CONFUSIÓN =====
 
@@ -15,6 +28,7 @@ class ProductRead(BaseModel):
     Tienda: Optional[str] = None
     Notas: Optional[str] = None
     UsuarioID: int
+    categorias: List[CategoriaSimple] = []  # NUEVO: Lista de categorías del producto
 
     class Config:
         from_attributes = True
@@ -27,7 +41,8 @@ class ProductCreate(BaseModel):
     Marca: Optional[str] = Field(None, max_length=100)      
     Modelo: Optional[str] = Field(None, max_length=100)         
     Tienda: Optional[str] = Field(None, max_length=255)       
-    Notas: Optional[str] = Field(None, max_length=5000)                  
+    Notas: Optional[str] = Field(None, max_length=5000)
+    categoria_id: Optional[int] = None  # NUEVO: Categoría del producto
     # UsuarioID se asigna automáticamente desde el token
 
 # Schema para ACTUALIZAR productos (todos los campos opcionales)

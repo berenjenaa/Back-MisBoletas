@@ -29,10 +29,35 @@ async def get_user(user_id: int, db: Session = Depends(get_db)):
     return usuario
 
 # Crear un usuario nuevo
-@router.post("/users", response_model=UserRead, status_code=201)
+@router.post("/users", response_model=LoginResponse, status_code=201)
 async def create_user(user: UserCreate, db: Session = Depends(get_db)):
-    """Registra un nuevo usuario en el sistema."""
-    return crud_user.create_user(db, user)
+    """Registra un nuevo usuario en el sistema y devuelve token de acceso."""
+    try:
+        # Crear usuario
+        nuevo_usuario = crud_user.create_user(db, user)
+        
+        # Crear token JWT automáticamente
+        access_token = create_access_token(
+            data={"sub": nuevo_usuario.correo, "user_id": nuevo_usuario.idUsuario}
+        )
+        
+        # Devolver respuesta con token y datos del usuario
+        user_response = UserRead(
+            idUsuario=nuevo_usuario.idUsuario,
+            nombre=nuevo_usuario.nombre,
+            correo=nuevo_usuario.correo,
+            fechaRegistro=nuevo_usuario.fechaRegistro
+        )
+        
+        return LoginResponse(
+            access_token=access_token,
+            token_type="bearer",
+            user=user_response
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error al crear usuario: {str(e)}")
 
 # LOGIN - Autenticar usuario
 @router.post("/auth/login", response_model=LoginResponse)
