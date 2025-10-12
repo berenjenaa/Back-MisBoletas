@@ -9,13 +9,15 @@ def verificar_tablas_render():
     """Verifica que las tablas de categorías tengan la estructura correcta."""
     
     from sqlalchemy import create_engine, text, inspect
-    
-    database_url = "postgresql://misboletas_user:huu5fmqT3OqshOqB2ZJ1KXNVcdWP7I7D@dpg-d3jd0n9r0fns7385rgb0-a.oregon-postgres.render.com/misboletas_a93l"
-    
+    from dotenv import load_dotenv
+    load_dotenv()
+    database_url = os.getenv("EXTERNAL_DATABASE_URL")
+    if not database_url:
+        print("❌ No se encontró la variable de entorno EXTERNAL_DATABASE_URL. Configúrala en tu .env.")
+        return False
     print("=" * 80)
     print("VERIFICACIÓN DE TABLAS EN RENDER")
     print("=" * 80)
-    
     try:
         engine = create_engine(database_url)
         inspector = inspect(engine)
