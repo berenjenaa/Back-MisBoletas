@@ -3,56 +3,50 @@ Schemas Pydantic para Documentos.
 Define la estructura de datos para requests y responses de la API.
 """
 
-from pydantic import BaseModel, Field, HttpUrl
-from datetime import datetime
+from pydantic import BaseModel
 from typing import Optional
 
-# ===== SCHEMA PARA LEER DOCUMENTOS (Response) =====
-class DocumentoRead(BaseModel):
+class DocumentoBase(BaseModel):
+    """Schema base para documentos."""
+    nombrearchivo: str
+    rutaarchivo: str
+
+class DocumentoCreate(DocumentoBase):
+    """Schema para crear un documento."""
+    pass
+
+class DocumentoRead(DocumentoBase):
     """Schema para devolver información de un documento."""
-    documentoid: int = Field(..., alias="DocumentoID")
-    productoid: int = Field(..., alias="ProductoID")
-    nombrearchivo: str = Field(..., alias="NombreArchivo")
-    url_gcs: str = Field(..., alias="URL_GCS")
-    blob_name: str = Field(..., alias="BlobName")
-    content_type: Optional[str] = Field(None, alias="ContentType")
-    size_bytes: Optional[int] = Field(None, alias="SizeBytes")
-    fecha_subida: datetime = Field(..., alias="FechaSubida")
-    
+    documentoid: int
+    productoid: int
+
     class Config:
         from_attributes = True
-        populate_by_name = True  # Permite usar tanto documentoid como DocumentoID
 
-# ===== SCHEMA PARA CREAR DOCUMENTOS (Request) =====
+class DocumentoResponse(BaseModel):
+    """Schema para las respuestas de operaciones con documentos."""
+    message: str
+    documentoid: Optional[int] = None
+    documento: Optional[DocumentoRead] = None
+
 class DocumentoUpload(BaseModel):
-    """
-    Schema para subir un documento.
-    El archivo se envía como multipart/form-data, no en JSON.
-    """
-    productoid: int = Field(..., description="ID del producto al que pertenece el documento", gt=0)
+    """Schema para subir un documento."""
+    productoid: int
 
-# ===== SCHEMA PARA RESPUESTA DE UPLOAD =====
 class DocumentoUploadResponse(BaseModel):
     """Schema para la respuesta al subir un documento."""
     message: str
     documento: DocumentoRead
 
-# ===== SCHEMA PARA ELIMINAR DOCUMENTOS =====
 class DocumentoDelete(BaseModel):
     """Schema para la respuesta al eliminar un documento."""
     message: str
     documentoid: int
 
-# ===== SCHEMA SIMPLIFICADO PARA LISTADO =====
 class DocumentoListItem(BaseModel):
     """Schema simplificado para listar documentos."""
-    documentoid: int = Field(..., alias="DocumentoID")
-    nombrearchivo: str = Field(..., alias="NombreArchivo")
-    url_gcs: str = Field(..., alias="URL_GCS")
-    content_type: Optional[str] = Field(None, alias="ContentType")
-    size_bytes: Optional[int] = Field(None, alias="SizeBytes")
-    fecha_subida: datetime = Field(..., alias="FechaSubida")
+    documentoid: int
+    nombrearchivo: str
     
     class Config:
         from_attributes = True
-        populate_by_name = True

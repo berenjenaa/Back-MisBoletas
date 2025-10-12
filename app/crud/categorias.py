@@ -1,120 +1,136 @@
 """
-Operaciones CRUD para Categorías con PostgreSQL.
-Gestiona categorías personalizadas por usuario.
+CRUD para Categorías usando funciones PostgreSQL.
 """
 
 from sqlalchemy.orm import Session
-from sqlalchemy import func
-from app.models.categoria import Categoria, ProductoCategoria
-from app.schemas.categorias import CategoriaCreate, CategoriaUpdate
+from sqlalchemy import text
+from fastapi import HTTPException
 from typing import List, Optional
+from app.schemas.categorias import CategoriaResponse
 
-def get_categoria(db: Session, categoria_id: int, usuario_id: int) -> Optional[Categoria]:
-    """Obtener una categoría específica del usuario"""
-    return db.query(Categoria).filter(
-        Categoria.CategoriaID == categoria_id,
-        Categoria.UsuarioID == usuario_id
-    ).first()
+def create_categoria(
+    db: Session,
+    producto_id: int,
+    user_id: int,
+    categoria: str
+) -> CategoriaResponse:
+    """Crea una nueva categoría usando fn_createcategoria."""
+    try:
+        result = db.execute(
+            text("""
+                SELECT * FROM fn_createcategoria(:categoria, :producto_id, :user_id)
+            """),
+            {
+                "categoria": categoria,
+                "producto_id": producto_id,
+                "user_id": user_id
+            }
+        )
+        
+        cat = result.fetchone()
+        db.commit()
+        
+        if not cat:
+            raise HTTPException(status_code=400, detail="Error al crear categoría")
+            
+        return CategoriaResponse(
+            id=cat.id,
+            productoid=cat.productoid,
+            categoria=cat.categoria
+        )
+        
+    except Exception as e:
+        db.rollback()
+        error_message = str(e)
+        if "ya existe" in error_message:
+            raise HTTPException(status_code=400, detail="Esta categoría ya existe para este producto")
+        if "no encontrado" in error_message or "no autorizado" in error_message:
+            raise HTTPException(status_code=404, detail=error_message)
+        raise HTTPException(status_code=500, detail=f"Error al crear categoría: {error_message}")
 
-def get_categorias(db: Session, usuario_id: int, skip: int = 0, limit: int = 100) -> List[Categoria]:
-    """Obtener todas las categorías de un usuario"""
-    return db.query(Categoria).filter(
-        Categoria.UsuarioID == usuario_id
-    ).offset(skip).limit(limit).all()
+def get_categorias_by_product(
+    db: Session,
+    producto_id: int,
+    user_id: int
+) -> List[CategoriaResponse]:
+    """Obtiene todas las categorías de un producto usando fn_getcategoriasbyproduct."""
+    try:
+        result = db.execute(
+            text("""
+                SELECT * FROM fn_getcategoriasbyproduct(:producto_id, :user_id)
+            """),
+            {
+                "producto_id": producto_id,
+                "user_id": user_id
+            }
+        )
+        
+        categorias = result.fetchall()
+        
+        return [
+            CategoriaResponse(
+                id=cat.id,
+                productoid=cat.productoid,
+                categoria=cat.categoria
+            ) for cat in categorias
+        ]
+        
+    except Exception as e:
+        error_message = str(e)
+        if "no encontrado" in error_message or "no autorizado" in error_message:
+            raise HTTPException(status_code=404, detail=error_message)
+        raise HTTPException(status_code=500, detail=f"Error al obtener categorías: {error_message}")
 
-def get_categorias_with_product_count(db: Session, usuario_id: int) -> List[dict]:
-    """Obtener categorías con conteo de productos"""
-    results = db.query(
-        Categoria,
-        func.count(ProductoCategoria.ProductoID).label('total_productos')
-    ).outerjoin(
-        ProductoCategoria, Categoria.CategoriaID == ProductoCategoria.CategoriaID
-    ).filter(
-        Categoria.UsuarioID == usuario_id
-    ).group_by(
-        Categoria.CategoriaID
-    ).all()
-    
-    return [
-        {
-            'CategoriaID': cat.CategoriaID,
-            'NombreCategoria': cat.NombreCategoria,
-            'Color': cat.Color,
-            'UsuarioID': cat.UsuarioID,
-            'FechaCreacion': cat.FechaCreacion,
-            'TotalProductos': count
-        }
-        for cat, count in results
-    ]
+def get_user_categorias(db: Session, user_id: int) -> List[dict]:
+    """Obtiene todas las categorías únicas del usuario con su conteo usando fn_getuniqueusercategorias."""
+    try:
+        result = db.execute(
+            text("""
+                SELECT * FROM fn_getuniqueusercategorias(:user_id)
+            """),
+            {"user_id": user_id}
+        )
+        
+        categorias = result.fetchall()
+        
+        return [
+            {
+                "categoria": cat.categoria,
+                "count": cat.count
+            } for cat in categorias
+        ]
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener categorías del usuario: {str(e)}")
 
-def create_categoria(db: Session, categoria: CategoriaCreate, usuario_id: int) -> Categoria:
-    """Crear una nueva categoría"""
-    db_categoria = Categoria(
-        NombreCategoria=categoria.NombreCategoria,
-        Color=categoria.Color,
-        UsuarioID=usuario_id
-    )
-    db.add(db_categoria)
-    db.commit()
-    db.refresh(db_categoria)
-    return db_categoria
-
-def update_categoria(db: Session, categoria_id: int, categoria: CategoriaUpdate, usuario_id: int) -> Optional[Categoria]:
-    """Actualizar una categoría existente"""
-    db_categoria = get_categoria(db, categoria_id, usuario_id)
-    if not db_categoria:
-        return None
-    
-    # Actualizar solo los campos proporcionados
-    update_data = categoria.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(db_categoria, field, value)
-    
-    db.commit()
-    db.refresh(db_categoria)
-    return db_categoria
-
-def delete_categoria(db: Session, categoria_id: int, usuario_id: int) -> bool:
-    """Eliminar una categoría"""
-    db_categoria = get_categoria(db, categoria_id, usuario_id)
-    if not db_categoria:
-        return False
-    
-    db.delete(db_categoria)
-    db.commit()
-    return True
-
-def asignar_categoria_a_producto(db: Session, producto_id: int, categoria_id: int) -> ProductoCategoria:
-    """Asignar una categoría a un producto"""
-    # Verificar si ya existe la relación
-    existing = db.query(ProductoCategoria).filter(
-        ProductoCategoria.ProductoID == producto_id,
-        ProductoCategoria.CategoriaID == categoria_id
-    ).first()
-    
-    if existing:
-        return existing
-    
-    # Crear nueva relación
-    pc = ProductoCategoria(
-        ProductoID=producto_id,
-        CategoriaID=categoria_id
-    )
-    db.add(pc)
-    db.commit()
-    db.refresh(pc)
-    return pc
-
-def quitar_categoria_de_producto(db: Session, producto_id: int, categoria_id: int) -> bool:
-    """Quitar una categoría de un producto"""
-    pc = db.query(ProductoCategoria).filter(
-        ProductoCategoria.ProductoID == producto_id,
-        ProductoCategoria.CategoriaID == categoria_id
-    ).first()
-    
-    if not pc:
-        return False
-    
-    db.delete(pc)
-    db.commit()
-    return True
+def delete_categoria(
+    db: Session,
+    categoria_id: int,
+    user_id: int
+) -> dict:
+    """Elimina una categoría usando fn_deletecategoria."""
+    try:
+        result = db.execute(
+            text("""
+                SELECT fn_deletecategoria(:categoria_id, :user_id) as message
+            """),
+            {
+                "categoria_id": categoria_id,
+                "user_id": user_id
+            }
+        )
+        
+        response = result.fetchone()
+        db.commit()
+        
+        if not response:
+            raise HTTPException(status_code=404, detail="Categoría no encontrada")
+            
+        return {"message": response.message}
+        
+    except Exception as e:
+        db.rollback()
+        error_message = str(e)
+        if "no encontrada" in error_message or "no autorizado" in error_message:
+            raise HTTPException(status_code=404, detail=error_message)
+        raise HTTPException(status_code=500, detail=f"Error al eliminar categoría: {error_message}")

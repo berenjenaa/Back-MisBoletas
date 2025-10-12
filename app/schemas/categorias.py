@@ -10,10 +10,10 @@ import re
 
 # Schema base de Categoría
 class CategoriaBase(BaseModel):
-    NombreCategoria: str = Field(..., min_length=1, max_length=100, description="Nombre de la categoría")
-    Color: str = Field(default="#007BFF", description="Color en formato hexadecimal (#RRGGBB)")
+    nombre_categoria: str
+    color: str = "#007BFF"
     
-    @field_validator('Color')
+    @field_validator('color')
     @classmethod
     def validate_color(cls, v: str) -> str:
         """Valida que el color sea un código hexadecimal válido"""
@@ -21,30 +21,35 @@ class CategoriaBase(BaseModel):
             raise ValueError('Color debe ser un código hexadecimal válido (ej: #FF0000)')
         return v.upper()
 
-# Schema para crear categoría (POST)
+# Schema para crear categoría
 class CategoriaCreate(CategoriaBase):
     pass
 
-# Schema para actualizar categoría (PUT/PATCH)
+# Schema para actualizar categoría
 class CategoriaUpdate(BaseModel):
-    NombreCategoria: Optional[str] = Field(None, min_length=1, max_length=100)
-    Color: Optional[str] = None
+    nombre_categoria: Optional[str] = None
+    color: Optional[str] = None
     
-    @field_validator('Color')
+    @field_validator('color')
     @classmethod
     def validate_color(cls, v: Optional[str]) -> Optional[str]:
         if v and not re.match(r'^#[0-9A-Fa-f]{6}$', v):
             raise ValueError('Color debe ser un código hexadecimal válido (ej: #FF0000)')
         return v.upper() if v else None
 
-# Schema de respuesta de Categoría
+# Schema para respuestas de Categoría
 class Categoria(CategoriaBase):
-    CategoriaID: int
-    UsuarioID: int
-    FechaCreacion: datetime
+    categoriaid: int
+    usuarioid: int
     
     class Config:
         from_attributes = True
+
+class CategoriaResponse(BaseModel):
+    """Schema para las respuestas de operaciones con categorías."""
+    message: str
+    categoriaid: Optional[int] = None
+    categoria: Optional[Categoria] = None
 
 # Schema extendido con conteo de productos
 class CategoriaWithProducts(Categoria):

@@ -1,105 +1,118 @@
 """
-CRUD simplificado para Documentos usando SQLAlchemy.
+CRUD para Documentos usando funciones PostgreSQL.
 """
 
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from fastapi import HTTPException
 from typing import List, Optional
-from app.models.documento import Documento
-from app.models.producto import Producto
+from app.schemas.documento import DocumentoCreate, DocumentoResponse
 
-# ===== CREAR DOCUMENTO =====
 def create_documento(
     db: Session,
     producto_id: int,
     user_id: int,
     nombre_archivo: str,
-    url_gcs: str,
-    blob_name: str,
-    content_type: Optional[str],
-    size_bytes: Optional[int]
-) -> Documento:
-    """Crea un nuevo documento."""
-    # Verificar ownership del producto
-    producto = db.query(Producto).filter(
-        Producto.ProductoID == producto_id,
-        Producto.UsuarioID == user_id
-    ).first()
-    
-    if not producto:
-        raise HTTPException(404, "Producto no encontrado o sin permisos")
-    
-    # Crear documento
-    documento = Documento(
-        ProductoID=producto_id,
-        NombreArchivo=nombre_archivo,
-        URL_GCS=url_gcs,
-        BlobName=blob_name,
-        ContentType=content_type,
-        SizeBytes=size_bytes
-    )
-    db.add(documento)
-    db.commit()
-    db.refresh(documento)
-    return documento
+    ruta_archivo: str
+) -> DocumentoResponse:
+    """Crea un nuevo documento usando fn_createdocument."""
+    try:
+        result = db.execute(
+            text("""
+                SELECT * FROM fn_createdocument(
+                    :producto_id, :nombre_archivo, :ruta_archivo, :user_id
+                )
+            """),
+            {
+                "producto_id": producto_id,
+                "nombre_archivo": nombre_archivo,
+                "ruta_archivo": ruta_archivo,
+                "user_id": user_id
+            }
+        )
+        
+        documento = result.fetchone()
+        db.commit()
+        
+        if not documento:
+            raise HTTPException(status_code=400, detail="Error al crear documento")
+            
+        return DocumentoResponse(
+            documentoid=documento.documentoid,
+            productoid=documento.productoid,
+            nombrearchivo=documento.nombrearchivo,
+            rutaarchivo=documento.rutaarchivo
+        )
+        
+    except Exception as e:
+        db.rollback()
+        error_message = str(e)
+        if "no encontrado" in error_message or "no autorizado" in error_message:
+            raise HTTPException(status_code=404, detail=error_message)
+        raise HTTPException(status_code=500, detail=f"Error al crear documento: {error_message}")
 
-# ===== OBTENER DOCUMENTOS DE UN PRODUCTO =====
-def get_documentos_by_producto(
+def get_documentos_by_product(
     db: Session,
     producto_id: int,
     user_id: int
-) -> List[Documento]:
-    """Obtiene todos los documentos de un producto."""
-    # Verificar ownership
-    producto = db.query(Producto).filter(
-        Producto.ProductoID == producto_id,
-        Producto.UsuarioID == user_id
-    ).first()
-    
-    if not producto:
-        raise HTTPException(404, "Producto no encontrado o sin permisos")
-    
-    return db.query(Documento).filter(
-        Documento.ProductoID == producto_id
-    ).order_by(Documento.FechaSubida.desc()).all()
+) -> List[DocumentoResponse]:
+    """Obtiene todos los documentos de un producto usando fn_getdocumentsbyproduct."""
+    try:
+        result = db.execute(
+            text("""
+                SELECT * FROM fn_getdocumentsbyproduct(:producto_id, :user_id)
+            """),
+            {
+                "producto_id": producto_id,
+                "user_id": user_id
+            }
+        )
+        
+        documentos = result.fetchall()
+        
+        return [
+            DocumentoResponse(
+                documentoid=doc.documentoid,
+                productoid=doc.productoid,
+                nombrearchivo=doc.nombrearchivo,
+                rutaarchivo=doc.rutaarchivo
+            ) for doc in documentos
+        ]
+        
+    except Exception as e:
+        error_message = str(e)
+        if "no encontrado" in error_message or "no autorizado" in error_message:
+            raise HTTPException(status_code=404, detail=error_message)
+        raise HTTPException(status_code=500, detail=f"Error al obtener documentos: {error_message}")
 
-# ===== OBTENER UN DOCUMENTO POR ID =====
-def get_documento_by_id(
-    db: Session,
-    documento_id: int,
-    user_id: int
-) -> Documento:
-    """Obtiene un documento específico por ID."""
-    documento = db.query(Documento).join(Producto).filter(
-        Documento.DocumentoID == documento_id,
-        Producto.UsuarioID == user_id
-    ).first()
-    
-    if not documento:
-        raise HTTPException(404, "Documento no encontrado o sin permisos")
-    
-    return documento
-
-# ===== ELIMINAR DOCUMENTO =====
 def delete_documento(
     db: Session,
     documento_id: int,
     user_id: int
 ) -> dict:
-    """Elimina un documento."""
-    documento = db.query(Documento).join(Producto).filter(
-        Documento.DocumentoID == documento_id,
-        Producto.UsuarioID == user_id
-    ).first()
-    
-    if not documento:
-        raise HTTPException(404, "Documento no encontrado o sin permisos")
-    
-    blob_name = documento.BlobName
-    db.delete(documento)
-    db.commit()
-    
-    return {
-        "message": "Documento eliminado exitosamente",
-        "blob_name": blob_name
-    }
+    """Elimina un documento usando fn_deletedocument."""
+    try:
+        result = db.execute(
+            text("""
+                SELECT fn_deletedocument(:documento_id, :user_id) as message
+            """),
+            {
+                "documento_id": documento_id,
+                "user_id": user_id
+            }
+        )
+        
+        response = result.fetchone()
+        db.commit()
+        
+        if not response:
+            raise HTTPException(status_code=404, detail="Documento no encontrado")
+            
+        return {"message": response.message}
+        
+    except Exception as e:
+        db.rollback()
+        error_message = str(e)
+        if "no encontrado" in error_message or "no autorizado" in error_message:
+            raise HTTPException(status_code=404, detail=error_message)
+        raise HTTPException(status_code=500, detail=f"Error al eliminar documento: {error_message}")
