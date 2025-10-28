@@ -47,3 +47,5 @@ google-cloud-documentai==2.29.0
 
 # Dependencias para manejo de archivos
 python-multipart==0.0.9
+
+packaging==25.0
