@@ -12,7 +12,9 @@ engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
     pool_pre_ping=True,
     echo=True,
-    connect_args={"sslmode": "require"}  # 🔹 obligatorio para conexiones externas en Render
+    connect_args={
+        "sslmode": "require"
+    },  # 🔹 obligatorio para conexiones externas en Render
 )
 
 # Crear la sesión
@@ -20,6 +22,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Base para los modelos
 Base = declarative_base()
+
 
 # Dependencia para obtener la sesión de la base de datos (inyección de dependencias de FastAPI)
 def get_db() -> Generator:

@@ -1,159 +1,199 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from typing import List
 
-from app.schemas.user import UserRead, UserCreate, UserLogin, LoginResponse, PasswordChangeRequest, AccountDeleteRequest
-from app.crud import user as crud_user
 from app.db.session import get_db
-from app.api.dependencies import get_current_user
-from app.core.security import hash_password, verify_password, create_access_token
+from app.models.user import Usuario  # <-- Importamos el modelo
+from app.schemas.user import (
+    UserCreate,
+    UserRead,
+    UserUpdate,
+    UserUpdatePassword,
+    UserLogin,
+)
+from app.schemas.token import LoginResponse, Token
+from app.crud import user as crud_user
+from app.core.security import create_access_token, verify_password
+from app.core.dependencies import get_current_user  # , get_current_admin_user
 
 router = APIRouter()
 
-# Obtener todos los usuarios
-@router.get("/users", response_model=List[UserRead])
-async def get_users(db: Session = Depends(get_db)):
-    """Obtiene la lista completa de usuarios registrados."""
-    usuarios = crud_user.get_users_list(db)
-    if not usuarios:
-        raise HTTPException(status_code=404, detail="No hay usuarios registrados")
-    return usuarios
+# =======================================================================
+# === 1. ENDPOINTS PÚBLICOS (Registro y Login) 🔓
+# =======================================================================
 
-# Obtener un usuario por ID
-@router.get("/users/{user_id}", response_model=UserRead)
-async def get_user(user_id: int, db: Session = Depends(get_db)):
-    """Obtiene la información de un usuario específico por ID."""
-    usuario = crud_user.search_user(db, user_id)
-    if not usuario:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    return usuario
 
-# Crear un usuario nuevo
-@router.post("/users", response_model=LoginResponse, status_code=201)
-async def create_user(user: UserCreate, db: Session = Depends(get_db)):
-    """Registra un nuevo usuario en el sistema y devuelve token de acceso."""
+@router.post(
+    "/users/register",
+    response_model=LoginResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Auth"],
+    summary="1. Registrar un nuevo usuario (para App)",
+)
+def register_new_user(user: UserCreate, db: Session = Depends(get_db)):
     try:
-        # Crear usuario
-        nuevo_usuario = crud_user.create_user(db, user)
-        
-        # Crear token JWT automáticamente
-        access_token = create_access_token(
-            data={"sub": nuevo_usuario.correo, "user_id": nuevo_usuario.idUsuario}
-        )
-        
-        # Devolver respuesta con token y datos del usuario
-        user_response = UserRead(
-            idUsuario=nuevo_usuario.idUsuario,
-            nombre=nuevo_usuario.nombre,
-            correo=nuevo_usuario.correo,
-            fechaRegistro=nuevo_usuario.fechaRegistro
-        )
-        
-        return LoginResponse(
-            access_token=access_token,
-            token_type="bearer",
-            user=user_response
-        )
-    except HTTPException:
-        raise
+        nuevo_usuario_db = crud_user.create_user(db, user)
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error al crear usuario: {str(e)}")
 
-# LOGIN - Autenticar usuario
-@router.post("/auth/login", response_model=LoginResponse)
-async def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
-    """Autentica un usuario y genera un token de acceso."""
-    try:
-        # Buscar usuario por email
-        user_data = crud_user.get_user_for_login(db, user_credentials.correo)
-        
-        if not user_data:
-            raise HTTPException(status_code=401, detail="Credenciales incorrectas")
-        
-        # Verificar contraseña
-        if not verify_password(user_credentials.contrasena, user_data["contrasenaHash"]):
-            raise HTTPException(status_code=401, detail="Credenciales incorrectas")
-        
-        # Crear token JWT
-        access_token = create_access_token(
-            data={"sub": user_data["correo"], "user_id": user_data["idUsuario"]}
-        )
-        
-        # Crear respuesta con token y datos del usuario
-        user_response = UserRead(
-            idUsuario=user_data["idUsuario"],
-            nombre=user_data["nombre"],
-            correo=user_data["correo"],
-            fechaRegistro=user_data["fechaRegistro"]
-        )
-        
-        return LoginResponse(
-            access_token=access_token,
-            token_type="bearer",
-            user=user_response
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error interno en el login: {str(e)}")
+    access_token = create_access_token(
+        data={"sub": nuevo_usuario_db.Email}
+    )  # <-- CORRECCIÓN
 
-# Actualizar un usuario existente
-@router.put("/users/{user_id}", response_model=UserRead)
-async def update_user(user_id: int, user: UserCreate, db: Session = Depends(get_db)):
-    """Actualiza la información de un usuario existente."""
-    return crud_user.update_user(db, user_id, user)
+    # Pydantic convierte el objeto 'nuevo_usuario_db' a 'UserRead'
+    user_response = UserRead.model_validate(nuevo_usuario_db)
 
-# Eliminar un usuario
-@router.delete("/users/{user_id}", status_code=204)
-async def delete_user(user_id: int, db: Session = Depends(get_db)):
-    """Elimina un usuario del sistema."""
-    crud_user.delete_user(db, user_id)
-    return {"message": "Usuario eliminado"}
+    return LoginResponse(
+        access_token=access_token, token_type="bearer", user=user_response
+    )
 
-# ===== ENDPOINTS ESENCIALES PARA GESTIÓN DE CUENTA =====
 
-# Cambiar contraseña del usuario actual
-@router.put("/auth/change-password", response_model=UserRead)
-async def change_password(
-    password_data: PasswordChangeRequest,
-    db: Session = Depends(get_db),
-    current_user: UserRead = Depends(get_current_user)
-):
-    """Permite al usuario autenticado cambiar su contraseña."""
-    try:
-        return crud_user.update_user_password(
-            db, 
-            current_user.idUsuario, 
-            password_data.nueva_contrasena
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al cambiar contraseña: {str(e)}")
+# ================================================
+# ENDPOINT DE LOGIN (PARA REACT NATIVE)
+# ================================================
+@router.post(
+    "/users/login",
+    response_model=LoginResponse,
+    tags=["Auth"],
+    summary="2. Iniciar sesión con JSON (para App)",
+)
+def login_user_with_json(user_credentials: UserLogin, db: Session = Depends(get_db)):
+    """
+    (Este es el que te falló)
+    """
+    db_user = crud_user.get_user_for_login(db, email=user_credentials.correo)
 
-# Eliminar cuenta del usuario actual
-@router.delete("/auth/delete-account")
-async def delete_my_account(
-    delete_data: AccountDeleteRequest,
-    db: Session = Depends(get_db),
-    current_user: UserRead = Depends(get_current_user)
-):
-    """Permite al usuario autenticado eliminar su propia cuenta y todos sus datos."""
-    if not delete_data.confirmar_eliminacion:
+    if not db_user:
         raise HTTPException(
-            status_code=400,
-            detail="Debe confirmar explícitamente la eliminación de la cuenta"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Correo o contraseña incorrectos",
         )
-    
-    try:
-        result = crud_user.delete_user_account(db, current_user.idUsuario)
-        return {
-            "message": "Cuenta eliminada exitosamente",
-            "detail": "Se han eliminado todos tus datos y productos asociados",
-            **result
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al eliminar cuenta: {str(e)}")
+
+    # --- CORRECCIÓN ---
+    # Usamos acceso por atributo (objeto) en lugar de por clave (dict)
+    if not verify_password(user_credentials.contrasena, db_user.ContrasenaHash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Correo o contraseña incorrectos",
+        )
+
+    access_token = create_access_token(data={"sub": db_user.Email})
+
+    # Pydantic valida el objeto db_user y lo convierte en el schema UserRead
+    user_data = UserRead.model_validate(db_user)  # <-- ¡Esto ya no fallará!
+
+    return LoginResponse(access_token=access_token, token_type="bearer", user=user_data)
+
+
+# ================================================
+# ENDPOINT DE TOKEN (PARA SWAGGER / OAUTH2)
+# ================================================
+@router.post(
+    "/token",
+    response_model=Token,
+    tags=["Auth"],
+    summary="3. Iniciar sesión con Form-Data (para Swagger)",
+)
+def login_for_access_token_form_data(
+    form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
+):
+    user_data = crud_user.get_user_for_login(db, email=form_data.username)
+
+    # --- CORRECCIÓN ---
+    # Usamos acceso por atributo (objeto)
+    if not user_data or not verify_password(
+        form_data.password, user_data.ContrasenaHash
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Email o contraseña incorrectos",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    access_token = create_access_token(data={"sub": user_data.Email})
+    return Token(access_token=access_token, token_type="bearer")
+
+
+# === 2. ENDPOINTS DE USUARIO AUTENTICADO (/me)
+
+
+@router.get(
+    "/users/me",
+    response_model=UserRead,
+    tags=["Usuarios"],
+    summary="4. Obtener mi perfil de usuario",
+)
+def read_users_me(current_user: Usuario = Depends(get_current_user)):  # <-- CORRECCIÓN
+    """
+    Devuelve los datos del usuario actualmente autenticado.
+    """
+    # Pydantic valida el objeto 'current_user' y lo convierte
+    return UserRead.model_validate(current_user)
+
+
+@router.put(
+    "/users/me",
+    response_model=UserRead,
+    tags=["Usuarios"],
+    summary="5. Actualizar mi perfil (nombre/email)",
+)
+def update_my_profile(
+    user_data: UserUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),  # <-- CORRECCIÓN
+):
+    # --- CORRECCIÓN ---
+    user_id = current_user.UsuarioID
+    updated_user = crud_user.update_user(db, user_id, user_data)
+    return UserRead.model_validate(updated_user)
+
+
+@router.put(
+    "/users/me/password",
+    response_model=UserRead,
+    tags=["Usuarios"],
+    summary="6. Actualizar mi contraseña",
+)
+def update_my_password(
+    password_data: UserUpdatePassword,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),  # <-- CORRECCIÓN
+):
+    # --- CORRECCIÓN ---
+    user_id = current_user.UsuarioID
+    if not verify_password(
+        password_data.contrasena_actual, current_user.ContrasenaHash
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="La contraseña actual es incorrecta",
+        )
+
+    updated_user = crud_user.update_user_password(
+        db, user_id, password_data.contrasena_nueva
+    )
+    return UserRead.model_validate(updated_user)
+
+
+@router.delete(
+    "/users/me",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Usuarios"],
+    summary="7. Eliminar mi cuenta",
+)
+def delete_my_account(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),  # <-- CORRECCIÓN
+):
+    # --- CORRECCIÓN ---
+    crud_user.delete_user(db, user_id=current_user.UsuarioID)
+    return None
+
+
+# =======================================================================
+# === 3. ENDPOINTS DE ADMINISTRADOR (Comentados)
+# =======================================================================
+# (Requieren implementar 'is_admin' en el modelo y dependencia)

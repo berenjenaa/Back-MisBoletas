@@ -8,7 +8,7 @@ Importa todos los modelos de la aplicación para que:
 
 Modelos incluidos:
 - Usuario: Gestión de usuarios del sistema
-- Categoria: Categorías para organizar productos  
+- Categoria: Categorías para organizar productos
 - Producto: Productos con garantías y documentos
 - Documento: Archivos adjuntos (boletas, garantías, etc.)
 - productocategorias: Relación many-to-many productos-categorías

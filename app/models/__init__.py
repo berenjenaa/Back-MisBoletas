@@ -5,7 +5,9 @@ Exporta todos los modelos de la aplicación
 """
 
 from .user import Usuario
-from .categoria import Categoria, ProductoCategoria
+from .categoria import Categoria
 from .producto import Producto
 from .documento import Documento
-__all__ = ["Usuario", "Categoria", "ProductoCategoria", "Producto", "Documento"]
+from .producto_categoria import ProductoCategoria
+
+__all__ = ["Usuario", "Categoria", "Producto", "Documento", "ProductoCategoria"]

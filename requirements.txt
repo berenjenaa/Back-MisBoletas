@@ -42,5 +42,8 @@ loguru==0.7.2
 # Dependencias para Google Cloud Storage
 google-cloud-storage==2.18.2
 
+# Dependencias para Google Document AI (OCR)
+google-cloud-documentai==2.29.0
+
 # Dependencias para manejo de archivos
 python-multipart==0.0.9

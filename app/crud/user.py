@@ -1,142 +1,111 @@
-"""
-CRUD operations para Usuarios usando SQLAlchemy ORM.
-"""
-
 from sqlalchemy.orm import Session
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from typing import List, Optional
 
-from app.models.user import Usuario
-from app.schemas.user import UserCreate, UserRead
+from app.models.user import Usuario  # <-- Importamos el modelo
+from app.schemas.user import UserCreate, UserRead, UserUpdate
 from app.core.security import hash_password
 
+
 # ===== CREAR USUARIO (REGISTER) =====
-def create_user(db: Session, user: UserCreate) -> UserRead:
-    """Crea un nuevo usuario con contraseña hasheada."""
-    # Verificar si el email ya existe
+def create_user(db: Session, user: UserCreate) -> Usuario:  # <-- Devuelve el modelo
+    """
+    Crea un nuevo usuario en la base de datos.
+    """
     existing = db.query(Usuario).filter(Usuario.Email == user.correo).first()
     if existing:
-        raise HTTPException(400, "El email ya está registrado")
-    
-    # Crear nuevo usuario
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "El email ya está registrado")
+
     db_user = Usuario(
         NombreUsuario=user.nombre,
         Email=user.correo,
-        ContrasenaHash=hash_password(user.contrasena)
+        ContrasenaHash=hash_password(user.contrasena),
     )
-    
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
-    
-    return UserRead(
-        idUsuario=db_user.UsuarioID,
-        nombre=db_user.NombreUsuario,
-        correo=db_user.Email,
-        fechaRegistro=db_user.FechaRegistro
-    )
 
-# ===== OBTENER USUARIO PARA LOGIN =====
-def get_user_for_login(db: Session, email: str) -> Optional[dict]:
-    """Obtiene usuario con hash de contraseña para validación de login."""
+    # Devuelve el objeto Usuario, no el schema UserRead
+    return db_user
+
+
+# ===== OBTENER USUARIO (Login y Dependencias) =====
+def get_user_for_login(db: Session, email: str) -> Optional[Usuario]:  # <-- CORRECCIÓN
+    """
+    Obtiene el objeto Usuario completo desde la BD.
+    """
+    # CORRECCIÓN: Simplemente devuelve el objeto modelo de SQLAlchemy
     user = db.query(Usuario).filter(Usuario.Email == email).first()
-    
-    if not user:
-        return None
-    
-    return {
-        "idUsuario": user.UsuarioID,
-        "nombre": user.NombreUsuario,
-        "correo": user.Email,
-        "contrasenaHash": user.ContrasenaHash,
-        "fechaRegistro": user.FechaRegistro
-    }
+    return user
+
 
 # ===== ACTUALIZAR CONTRASEÑA =====
-def update_user_password(db: Session, user_id: int, new_password: str) -> UserRead:
-    """Cambia la contraseña de un usuario."""
+def update_user_password(
+    db: Session, user_id: int, new_password: str
+) -> Usuario:  # <-- CORRECCIÓN
+    """
+    Actualiza la contraseña de un usuario específico.
+    """
     user = db.query(Usuario).filter(Usuario.UsuarioID == user_id).first()
-    
     if not user:
-        raise HTTPException(404, "Usuario no encontrado")
-    
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado")
+
     user.ContrasenaHash = hash_password(new_password)
     db.commit()
     db.refresh(user)
-    
-    return UserRead(
-        idUsuario=user.UsuarioID,
-        nombre=user.NombreUsuario,
-        correo=user.Email,
-        fechaRegistro=user.FechaRegistro
-    )
+
+    return user  # <-- Devuelve el objeto
+
 
 # ===== ELIMINAR USUARIO =====
 def delete_user(db: Session, user_id: int) -> None:
-    """Elimina un usuario y sus datos relacionados (cascada)."""
+    """
+    Elimina un usuario de la base de datos.
+    """
     user = db.query(Usuario).filter(Usuario.UsuarioID == user_id).first()
-    
     if not user:
-        raise HTTPException(404, "Usuario no encontrado")
-    
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado")
+
     db.delete(user)
     db.commit()
 
-# ===== OBTENER LISTA DE USUARIOS =====
-def get_users_list(db: Session) -> List[UserRead]:
-    """Obtiene todos los usuarios ordenados por fecha de registro."""
+
+# ===== OBTENER LISTA DE USUARIOS (Admin) =====
+def get_users_list(db: Session) -> List[Usuario]:  # <-- CORRECCIÓN
+    """
+    Obtiene una lista de todos los usuarios.
+    """
     users = db.query(Usuario).order_by(Usuario.FechaRegistro.desc()).all()
-    
-    return [
-        UserRead(
-            idUsuario=u.UsuarioID,
-            nombre=u.NombreUsuario,
-            correo=u.Email,
-            fechaRegistro=u.FechaRegistro
-        ) for u in users
-    ]
+    return users
 
-# ===== BUSCAR USUARIO POR ID =====
-def search_user(db: Session, user_id: int) -> Optional[UserRead]:
-    """Busca un usuario por su ID."""
+
+# ===== BUSCAR USUARIO POR ID (Admin) =====
+def search_user(db: Session, user_id: int) -> Optional[Usuario]:  # <-- CORRECCIÓN
+    """
+    Busca un usuario por su ID.
+    """
     user = db.query(Usuario).filter(Usuario.UsuarioID == user_id).first()
-    
-    if not user:
-        return None
-    
-    return UserRead(
-        idUsuario=user.UsuarioID,
-        nombre=user.NombreUsuario,
-        correo=user.Email,
-        fechaRegistro=user.FechaRegistro
-    )
+    return user
 
-# ===== ACTUALIZAR USUARIO =====
-def update_user(db: Session, user_id: int, user: UserCreate) -> UserRead:
-    """Actualiza los datos de un usuario."""
+
+# ===== ACTUALIZAR USUARIO (Admin o /me) =====
+def update_user(
+    db: Session, user_id: int, user_data: UserUpdate
+) -> Usuario:  # <-- CORRECCIÓN
+    """
+    Actualiza un usuario usando el schema UserUpdate (solo campos opcionales).
+    """
     db_user = db.query(Usuario).filter(Usuario.UsuarioID == user_id).first()
-    
     if not db_user:
-        raise HTTPException(404, "Usuario no encontrado")
-    
-    # Verificar si el email ya está en uso por otro usuario
-    if user.correo != db_user.Email:
-        existing = db.query(Usuario).filter(Usuario.Email == user.correo).first()
-        if existing:
-            raise HTTPException(400, "El email ya está registrado")
-    
-    db_user.NombreUsuario = user.nombre
-    db_user.Email = user.correo
-    
-    if user.contrasena:
-        db_user.ContrasenaHash = hash_password(user.contrasena)
-    
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado")
+
+    # Obtiene solo los datos que SÍ se enviaron en el JSON
+    update_data = user_data.model_dump(exclude_unset=True)
+
+    for key, value in update_data.items():
+        setattr(db_user, key, value)
+
     db.commit()
     db.refresh(db_user)
-    
-    return UserRead(
-        idUsuario=db_user.UsuarioID,
-        nombre=db_user.NombreUsuario,
-        correo=db_user.Email,
-        fechaRegistro=db_user.FechaRegistro
-    )
+
+    return db_user
