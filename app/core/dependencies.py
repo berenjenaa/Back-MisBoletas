@@ -2,100 +2,107 @@
 Dependencias de autenticación para proteger endpoints.
 
 Proporciona:
-- get_current_user: Verifica token JWT y devuelve usuario actual
-- get_current_user_id: Devuelve solo el ID del usuario
+- get_current_user: Valida token JWT de Supabase y devuelve datos del usuario
+- get_current_user_id: Devuelve solo el ID del usuario (UUID de Supabase)
 """
 
 from fastapi import Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from jose import JWTError
+from fastapi.security import HTTPBearer
+from typing import Optional
+from pydantic import BaseModel
 
-# --- CORRECCIÓN 1: Importar la dependencia de seguridad correcta ---
-# (Tu archivo security.py usa 'oauth2_scheme' pero no lo exportaba,
-from fastapi.security import OAuth2PasswordBearer
-
-oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/api/v1/token"
-)  # Asegúrate que esta URL sea la de form-data
-
-# --- CORRECCIÓN 2: Importar la función con el nombre NUEVO ---
-from app.core.security import decode_access_token
-from app.crud import user as crud_user
-from app.db.session import get_db
-from app.models.user import Usuario
+from app.db.supabase import supabase
 
 # =======================================================================
-# === DEPENDENCIA DE USUARIO AUTENTICADO (Objeto Completo)
+# === MODELOS AUXILIARES
 # =======================================================================
 
 
-def get_current_user(
-    token: str = Depends(oauth2_scheme),  # <-- Usamos el scheme
-    db: Session = Depends(get_db),
-) -> Usuario:  # <-- Devuelve el modelo SQLAlchemy, no el schema UserRead
-    """
-    Dependencia de FastAPI para obtener el objeto Usuario completo
-    a partir del token en la cabecera Authorization.
-    """
+class CurrentUser(BaseModel):
+    """Datos básicos del usuario autenticado desde Supabase."""
 
-    # Define la excepción que se pasará a la función de decodificación
+    id: str  # UUID de Supabase
+    email: str
+
+
+# =======================================================================
+# === SEGURIDAD: Bearer Token Scheme
+# =======================================================================
+
+security = HTTPBearer()
+
+
+# =======================================================================
+# === DEPENDENCIA: OBTENER USUARIO ACTUAL (Validado con Supabase)
+# =======================================================================
+
+
+async def get_current_user(
+    credentials=Depends(security),
+) -> CurrentUser:
+    """
+    Dependencia de FastAPI que valida el token de Supabase.
+
+    Lógica:
+    1. Extrae el token del header Authorization (Bearer token)
+    2. Lo valida con supabase.auth.get_user(token)
+    3. Devuelve los datos del usuario autenticado
+
+    Raises:
+        HTTPException: Si el token es inválido o expiró
+    """
+    token = credentials.credentials
+
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="No se pudieron validar las credenciales",
+        detail="Token inválido o expirado",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
     try:
-        # Le pasamos el token y la excepción que debe lanzar si falla
-        payload = decode_access_token(token, credentials_exception)
+        # Validar token con Supabase
+        user = supabase.client.auth.get_user(token)
 
-        # --- CORRECCIÓN 4: Acceder al email desde el objeto TokenData ---
-        email: str = payload.email
-        if email is None:
+        if not user or not user.user:
             raise credentials_exception
 
-    except JWTError:
+        # Extraer datos del usuario
+        auth_user = user.user
+        return CurrentUser(id=auth_user.id, email=auth_user.email or "")
+
+    except Exception as e:
+        print(f"[ERROR] Error validating token: {e}")
         raise credentials_exception
 
-    # --- CORRECCIÓN 5: Buscar al usuario por EMAIL ---
-    # buscar al usuario por email, no por ID.
-    user = crud_user.get_user_for_login(db, email=email)
-
-    if user is None:
-        # Si el usuario no existe en la BD (ej. fue borrado pero el token aún es válido)
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado"
-        )
-
-    # Devolvemos el objeto Usuario completo (el modelo SQLAlchemy)
-    return user
-
 
 # =======================================================================
-# === DEPENDENCIA DE ID DE USUARIO (Para reducir código)
+# === DEPENDENCIA: OBTENER ID DEL USUARIO ACTUAL
 # =======================================================================
 
 
-def get_current_user_id(current_user: Usuario = Depends(get_current_user)) -> int:
+async def get_current_user_id(
+    current_user: CurrentUser = Depends(get_current_user),
+) -> str:
     """
-    Dependencia simplificada que solo devuelve el ID del usuario actual.
+    Dependencia simplificada que devuelve solo el ID del usuario (UUID).
+
+    Uso en endpoints:
+        @app.get("/my-data")
+        async def get_data(user_id: str = Depends(get_current_user_id)):
+            return {"user_id": user_id}
     """
-    return current_user.UsuarioID
+    return current_user.id
 
 
 # =======================================================================
-# === DEPENDENCIA DE USUARIO ADMINISTRADOR (Comentado)
+# === DEPENDENCIA: EMAIL DEL USUARIO ACTUAL
 # =======================================================================
 
-# def get_current_admin_user(
-#     current_user: Usuario = Depends(get_current_user),
-# ) -> Usuario:
-#     """
-#     (AÚN COMENTADO) - Requiere que el modelo 'Usuario' tenga 'is_admin'
-#     """
-#     if not current_user.is_admin:
-#         raise HTTPException(
-#             status_code=status.HTTP_403_FORBIDDEN,
-#             detail="No tienes permisos de administrador",
-#         )
-#     return current_user
+
+async def get_current_user_email(
+    current_user: CurrentUser = Depends(get_current_user),
+) -> str:
+    """
+    Dependencia para obtener solo el email del usuario autenticado.
+    """
+    return current_user.email

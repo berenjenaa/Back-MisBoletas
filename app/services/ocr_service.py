@@ -1,6 +1,7 @@
 import logging
+import json
 from fastapi import HTTPException, status, UploadFile
-from app.core.config import settings  # Importa los settings
+from app.core.config import settings
 
 # Importar librerías de Google Document AI
 try:
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # --- VALIDACIÓN INICIAL ---
 if documentai is None:
-    logger.critical("Librería 'google-cloud-documentai' no instalada.")
+    logger.critical("[ERROR] google-cloud-documentai library not installed")
 elif not all(
     [
         settings.DOCUMENTAI_PROJECT_ID,
@@ -23,7 +24,7 @@ elif not all(
     ]
 ):
     logger.critical(
-        "Variables de entorno de Document AI no configuradas (PROJECT_ID, LOCATION, PROCESSOR_ID)."
+        "[ERROR] Document AI environment variables not configured (PROJECT_ID, LOCATION, PROCESSOR_ID)"
     )
 
 
@@ -31,27 +32,33 @@ def _get_documentai_client():
     """Crea y configura el cliente de Document AI."""
     if documentai is None:
         raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "Servicio de OCR no instalado."
+            status.HTTP_503_SERVICE_UNAVAILABLE, "OCR service not installed"
         )
 
     try:
-        # Configura el cliente para que use la región correcta
         opts = ClientOptions(
             api_endpoint=f"{settings.DOCUMENTAI_LOCATION}-documentai.googleapis.com"
         )
         client = documentai.DocumentProcessorServiceClient(client_options=opts)
     except Exception as e:
-        logger.error(f"Error al instanciar Document AI: {e}")
+        logger.error(f"[ERROR] Failed to initialize Document AI client: {e}")
         raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "Servicio de OCR no pudo iniciarse."
+            status.HTTP_503_SERVICE_UNAVAILABLE, "OCR service initialization failed"
         )
 
     return client
 
 
-async def process_boleta_image(file: UploadFile, user_id: int) -> dict:
+async def process_boleta_image(file: UploadFile, user_id: str) -> dict:
     """
     Procesa la imagen de una boleta con Google Document AI (Receipt Processor).
+
+    Args:
+        file: UploadFile con la imagen
+        user_id: ID del usuario (para logging)
+
+    Returns:
+        Dict con texto completo y datos estructurados extraídos
     """
     client = _get_documentai_client()
 
@@ -73,32 +80,135 @@ async def process_boleta_image(file: UploadFile, user_id: int) -> dict:
     request = documentai.ProcessRequest(name=name, raw_document=raw_document)
 
     # 5. Llamar a la API de Document AI
-    logger.info(f"Enviando imagen a Document AI (Usuario: {user_id})...")
+    logger.info(f"[INFO] Sending image to Document AI (User: {user_id})...")
     try:
         result = client.process_document(request=request)
         document = result.document
     except Exception as e:
-        logger.error(f"Error en la API de Document AI: {e}", exc_info=True)
+        logger.error(f"[ERROR] Document AI API error: {e}", exc_info=True)
         raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR, f"Error externo de OCR: {e}"
+            status.HTTP_500_INTERNAL_SERVER_ERROR, f"OCR external error: {str(e)}"
         )
 
-    # 6. Extraer y estructurar los datos (¡la mejor parte!)
-    # No más RegEx. Document AI nos da los campos ("entities").
-
+    # 6. Extraer y estructurar los datos
     extracted_data = {}
     for entity in document.entities:
-        # 'entity.type_' es el nombre del campo (ej: 'total_amount')
-        # 'entity.mention_text' es el valor (ej: '$12.345')
-
-        # Opcional: Limpiar el valor (ej. quitar '$' o 'CLP')
         value = entity.mention_text
-        if entity.type_ == "total_amount":
-            # Aquí puedes añadir lógica para convertir "12.345" a 12345.0
-            pass
-
         extracted_data[entity.type_] = value
 
-    logger.info(f"Datos extraídos para Usuario {user_id}: {extracted_data}")
+    logger.info(f"[OK] Data extracted for User {user_id}: {len(extracted_data)} fields")
 
     return {"texto_completo": document.text, "datos_estructurados": extracted_data}
+
+
+async def process_boleta_from_gcs_uri(gcs_uri: str, user_id: str = None) -> dict:
+    """
+    Procesa una imagen de boleta directamente desde GCS (gs://...).
+
+    Ventajas:
+    - No requiere descargar bytes (más rápido)
+    - Usa GcsSource de Document AI (procesamiento directo en Google Cloud)
+    - Ideal para archivos grandes
+
+    Args:
+        gcs_uri: URI completa en Google Cloud Storage (ej: gs://bucket-name/path/to/file.jpg)
+        user_id: ID del usuario (para logging)
+
+    Returns:
+        Dict con:
+        - "texto_completo": Texto extraído de la imagen
+        - "datos_estructurados": Entidades organizadas por tipo (key: tipo, value: texto)
+        - "confianza": Puntuación de confianza promedio (0-1)
+        - "raw_entities": Lista completa de entidades con metadata completa
+        - "total_entities": Cantidad de entidades extraídas
+    """
+    client = _get_documentai_client()
+
+    # 1. Construir el 'name' completo del procesador
+    name = client.processor_path(
+        settings.DOCUMENTAI_PROJECT_ID,
+        settings.DOCUMENTAI_LOCATION,
+        settings.DOCUMENTAI_PROCESSOR_ID,
+    )
+
+    # 2. Validar que sea URI de GCS
+    if not gcs_uri.startswith("gs://"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid URI format. Must start with 'gs://'. Got: {gcs_uri}",
+        )
+
+    # 3. Validar bucket si está configurado
+    if settings.GCS_BUCKET_NAME:
+        expected_prefix = f"gs://{settings.GCS_BUCKET_NAME}/"
+        if not gcs_uri.startswith(expected_prefix):
+            logger.warning(
+                f"[WARNING] GCS URI from unexpected bucket. Expected: {expected_prefix}, Got: {gcs_uri}"
+            )
+
+    # 4. Crear documento usando GCS URI (sin descargar bytes)
+    gcs_document = documentai.GcsDocument(gcs_uri=gcs_uri)
+
+    # 5. Crear la petición con referencia a GCS
+    request = documentai.ProcessRequest(name=name, gcs_document=gcs_document)
+
+    # 6. Llamar a la API de Document AI
+    user_log = f"User: {user_id}" if user_id else "System"
+    logger.info(f"[INFO] Sending GCS image to Document AI ({user_log}). URI: {gcs_uri}")
+    try:
+        result = client.process_document(request=request)
+        document = result.document
+    except Exception as e:
+        logger.error(f"[ERROR] Document AI API error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"OCR external error: {str(e)}")
+
+    # 7. Extraer y estructurar los datos
+    extracted_data = {}
+    raw_entities = []
+    total_confidence = 0.0
+    entity_count = 0
+
+    for entity in document.entities:
+        value = entity.mention_text
+        confidence = entity.confidence if hasattr(entity, "confidence") else 0.0
+
+        # Guardar entidad con metadata completa
+        entity_info = {
+            "type": entity.type_,
+            "value": value,
+            "confidence": round(confidence, 3),
+        }
+
+        # Agregar bounding box si existe
+        if entity.bounding_poly and entity.bounding_poly.vertices:
+            entity_info["bounding_box"] = {
+                "vertices": [
+                    {"x": round(v.x, 4), "y": round(v.y, 4)}
+                    for v in entity.bounding_poly.vertices
+                ]
+            }
+
+        raw_entities.append(entity_info)
+
+        # Agregar al diccionario estructurado (última entidad de cada tipo gana)
+        extracted_data[entity.type_] = value
+
+        total_confidence += confidence
+        entity_count += 1
+
+    # Calcular confianza promedio
+    avg_confidence = (total_confidence / entity_count) if entity_count > 0 else 0.0
+
+    logger.info(
+        f"[OK] OCR completed ({user_log}). "
+        f"Entities: {entity_count}, "
+        f"Avg Confidence: {avg_confidence:.1%}"
+    )
+
+    return {
+        "texto_completo": document.text,
+        "datos_estructurados": extracted_data,
+        "confianza": round(avg_confidence, 3),
+        "raw_entities": raw_entities,
+        "total_entities": entity_count,
+    }

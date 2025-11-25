@@ -1,11 +1,11 @@
 """
 Paquete de configuración de base de datos.
 
-Exporta las funciones y objetos principales para manejo de BD
-
+Exports main functions and objects for database handling.
+En la migración a Supabase, la mayoría de operaciones usan Supabase SDK.
 """
 
 # Importaciones principales del paquete db
-from .session import Base, SessionLocal, engine, get_db
+from .supabase import supabase
 
-__all__ = ["Base", "SessionLocal", "engine", "get_db"]
+__all__ = ["supabase"]

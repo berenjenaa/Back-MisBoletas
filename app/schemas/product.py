@@ -1,81 +1,66 @@
-from pydantic import BaseModel, Field, ConfigDict  # <-- CAMBIO
-from datetime import date
-from typing import Optional, List, TYPE_CHECKING
-from decimal import Decimal  # <-- CAMBIO
-
-if TYPE_CHECKING:
-    from app.schemas.categorias import Categoria
+from pydantic import BaseModel, Field, ConfigDict
+from datetime import date, datetime
+from typing import Optional, List
+from decimal import Decimal
+from uuid import UUID
 
 
 # ===== SCHEMA SIMPLIFICADO PARA CATEGORÍA EN PRODUCTO =====
 class CategoriaSimple(BaseModel):
     """Schema simplificado de categoría para incluir en productos"""
 
-    CategoriaID: int
-    NombreCategoria: str
-    Color: str
+    id: UUID
+    nombre: str
+    color: Optional[str] = None
 
-    # --- CAMBIO: Sintaxis de Pydantic v2 ---
     model_config = ConfigDict(from_attributes=True)
 
 
-# ===== SCHEMAS CORREGIDOS - SIN CONFUSIÓN =====
+# ===== SCHEMAS PARA PRODUCTOS (SUPABASE) =====
 
 
-# Schema para LEER productos (respuestas de API)
 class ProductRead(BaseModel):
-    ProductoID: int
-    NombreProducto: str
-    FechaCompra: Optional[date] = None
-    DuracionGarantia: Optional[int] = None
-    Marca: Optional[str] = None
-    Modelo: Optional[str] = None
-    Tienda: Optional[str] = None
-    Notas: Optional[str] = None
-    UsuarioID: int
+    """Schema para leer un producto desde Supabase."""
+
+    id: UUID
+    user_id: UUID
+    nombre: str
+    fecha_compra: Optional[date] = None
+    duracion_garantia: Optional[int] = None
+    marca: Optional[str] = None
+    modelo: Optional[str] = None
+    tienda: Optional[str] = None
+    notas: Optional[str] = None
+    precio: Optional[Decimal] = None
+    creado_en: datetime
+    actualizado_en: Optional[datetime] = None
     categorias: List[CategoriaSimple] = []
 
-    # --- CAMBIO AÑADIDO ---
-    Precio: Optional[Decimal] = None
-    # --- FIN DEL CAMBIO ---
-
-    # --- CAMBIO: Sintaxis de Pydantic v2 ---
     model_config = ConfigDict(from_attributes=True)
 
 
-# Schema para CREAR productos (sin ID, campos obligatorios)
 class ProductCreate(BaseModel):
-    NombreProducto: str = Field(..., min_length=1, max_length=255)
-    FechaCompra: Optional[date] = None
-    DuracionGarantia: Optional[int] = Field(None, ge=0, le=120)
-    Marca: Optional[str] = Field(None, max_length=100)
-    Modelo: Optional[str] = Field(None, max_length=100)
-    Tienda: Optional[str] = Field(None, max_length=255)
-    Notas: Optional[str] = Field(None, max_length=5000)
-    categoria_id: Optional[int] = None
+    """Schema para crear un nuevo producto."""
 
-    # --- CAMBIO AÑADIDO ---
-    Precio: Optional[Decimal] = Field(
-        None, ge=0, description="Precio del producto (para IA/Dashboard)"
-    )
-    # --- FIN DEL CAMBIO ---
+    nombre: str = Field(..., min_length=1, max_length=255)
+    fecha_compra: Optional[date] = None
+    duracion_garantia: Optional[int] = Field(None, ge=0, le=120)
+    marca: Optional[str] = Field(None, max_length=100)
+    modelo: Optional[str] = Field(None, max_length=100)
+    tienda: Optional[str] = Field(None, max_length=255)
+    notas: Optional[str] = Field(None, max_length=5000)
+    precio: Optional[Decimal] = Field(None, ge=0)
+    categoria_ids: Optional[List[UUID]] = []
 
 
-# Schema para ACTUALIZAR productos (todos los campos opcionales)
 class ProductUpdate(BaseModel):
-    NombreProducto: Optional[str] = Field(None, min_length=1, max_length=255)
-    FechaCompra: Optional[date] = None
-    DuracionGarantia: Optional[int] = Field(None, ge=0, le=120)
-    Marca: Optional[str] = Field(None, max_length=100)
-    Modelo: Optional[str] = Field(None, max_length=100)
-    Tienda: Optional[str] = Field(None, max_length=255)
-    Notas: Optional[str] = Field(None, max_length=5000)
+    """Schema para actualizar un producto."""
 
-    # --- CAMBIO AÑADIDO ---
-    Precio: Optional[Decimal] = Field(None, ge=0, description="Precio del producto")
-    # --- FIN DEL CAMBIO ---
-
-
-# Schema específico para actualizar solo notas (simplificado)
-class ProductNotesUpdate(BaseModel):
-    Notas: str = Field(..., max_length=5000)
+    nombre: Optional[str] = Field(None, min_length=1, max_length=255)
+    fecha_compra: Optional[date] = None
+    duracion_garantia: Optional[int] = Field(None, ge=0, le=120)
+    marca: Optional[str] = Field(None, max_length=100)
+    modelo: Optional[str] = Field(None, max_length=100)
+    tienda: Optional[str] = Field(None, max_length=255)
+    notas: Optional[str] = Field(None, max_length=5000)
+    precio: Optional[Decimal] = Field(None, ge=0)

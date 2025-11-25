@@ -1,57 +1,110 @@
-# En app/api/v1/ocr.py (o donde lo hayas creado)
+# En app/api/v1/ocr.py
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
-from sqlalchemy.orm import Session
 import logging
+from uuid import UUID
 
-from app.core.dependencies import get_current_user_id
-from app.db.session import get_db
+from app.core.dependencies import get_current_user, CurrentUser
+from app.db.supabase import supabase
 
-# Importa el servicio real
+# Importa el servicio OCR
 from app.services import ocr_service
 
 router = APIRouter()
 
 
-@router.post("/ocr/procesar-boleta", tags=["OCR"])
+@router.post("/ocr/procesar-boleta", tags=["OCR"], summary="Procesar boleta con OCR")
 async def procesar_boleta_ocr(
     file: UploadFile = File(...),
-    user_id: int = Depends(get_current_user_id),
-    db: Session = Depends(get_db),  # db se mantiene por si el servicio lo necesita
+    current_user: CurrentUser = Depends(get_current_user),
 ):
     """
     Recibe una imagen (JPG, PNG) o PDF de una boleta, la procesa
-    con Document AI y devuelve los datos estructurados.
+    con Google Document AI y devuelve los datos estructurados.
+
+    Args:
+        file: Imagen o PDF de boleta
+        current_user: Usuario autenticado
+
+    Returns:
+        {
+            "file_name": "boleta.pdf",
+            "content_type": "application/pdf",
+            "message": "Procesada exitosamente",
+            "ocr_results": {
+                "texto_extraído": "...",
+                "entidades": [...],
+                "confidencia": 0.95
+            }
+        }
     """
-    # 1. Validar el tipo de archivo (Imágenes o PDF)
+    # 1. Validar tipo de archivo
     if (
         not file.content_type.startswith("image/")
         and file.content_type != "application/pdf"
     ):
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Tipo de archivo no soportado. Por favor, sube una imagen (JPG, PNG) o un PDF.",
+            detail="Tipo no soportado. Usa JPG, PNG o PDF.",
         )
 
-    # 2. Llamar al servicio para que haga el trabajo
     try:
-        ocr_results = await ocr_service.process_boleta_image(file=file, user_id=user_id)
+        # 2. Procesar con Document AI
+        ocr_results = await ocr_service.process_boleta_image(
+            file=file, user_id=current_user.id  # UUID string
+        )
 
-        # 3. Devolver la respuesta exitosa
+        # 3. Guardar referencia en Supabase (opcional)
+        # Puedes guardar el resultado del OCR si lo necesitas
+        try:
+            supabase.get_table("ocr_logs").insert(
+                {
+                    "user_id": current_user.id,
+                    "file_name": file.filename,
+                    "content_type": file.content_type,
+                    "resultado": ocr_results,
+                }
+            ).execute()
+        except Exception as e:
+            print(f"⚠️  No se pudo guardar log de OCR: {e}")
+            # No es crítico, continuar
+
+        # 4. Devolver respuesta
         return {
             "file_name": file.filename,
             "content_type": file.content_type,
-            "message": "Imagen procesada exitosamente con Document AI.",
-            "ocr_results": ocr_results,  # Devuelve lo que el servicio encontró
+            "message": "Boleta procesada exitosamente con OCR",
+            "ocr_results": ocr_results,
         }
 
-    except HTTPException as e:
-        # Si el servicio lanza un error HTTP (ej. 400, 503)
-        raise e
+    except HTTPException:
+        raise
     except Exception as e:
-        # Si el servicio tiene un error inesperado
-        logging.error(f"Error interno en OCR: {e}", exc_info=True)
+        logging.error(f"❌ Error en OCR: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Ocurrió un error inesperado al procesar la imagen.",
+            detail="Error procesando boleta",
         )
+
+
+@router.get("/ocr/health", tags=["OCR"], summary="Verificar disponibilidad de OCR")
+async def ocr_health_check():
+    """Verifica que el servicio de OCR está disponible."""
+    try:
+        # Intentar obtener el procesador
+        from app.core.config import settings
+
+        if not settings.DOCUMENTAI_PROJECT_ID:
+            return {"status": "unavailable", "reason": "Not configured"}
+
+        return {
+            "status": "available",
+            "provider": "Google Document AI",
+            "processor_id": (
+                settings.DOCUMENTAI_PROCESSOR_ID[:8] + "..."
+                if settings.DOCUMENTAI_PROCESSOR_ID
+                else "N/A"
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "reason": str(e)}

@@ -1,41 +1,30 @@
 """
 Schemas Pydantic para Documentos.
 Define la estructura de datos para requests y responses de la API.
+Incluye soporte para OCR metadata.
 """
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
+from uuid import UUID
 
 
 # ===== SCHEMA PARA LEER DOCUMENTOS (Response) =====
 class DocumentoRead(BaseModel):
-    """Schema para devolver información de un documento."""
+    """Schema para devolver información de un documento desde Supabase."""
 
-    documentoid: int = Field(..., alias="DocumentoID")
-    productoid: int = Field(..., alias="ProductoID")
-    nombrearchivo: str = Field(..., alias="NombreArchivo")
-    url_gcs: str = Field(..., alias="URL_GCS")
-    blob_name: str = Field(..., alias="BlobName")
-    content_type: Optional[str] = Field(None, alias="ContentType")
-    size_bytes: Optional[int] = Field(None, alias="SizeBytes")
-    fecha_subida: datetime = Field(..., alias="FechaSubida")
+    id: UUID
+    producto_id: UUID
+    nombre_archivo: str
+    url_gcs: str
+    blob_name: str
+    content_type: Optional[str] = None
+    size_bytes: Optional[int] = None
+    metadata_ocr: Optional[Dict[str, Any]] = None  # OCR data
+    fecha_subida: datetime
 
-    class Config:
-        from_attributes = True
-        populate_by_name = True  # Permite usar tanto documentoid como DocumentoID
-
-
-# ===== SCHEMA PARA CREAR DOCUMENTOS (Request) =====
-class DocumentoUpload(BaseModel):
-    """
-    Schema para subir un documento.
-    El archivo se envía como multipart/form-data, no en JSON.
-    """
-
-    productoid: int = Field(
-        ..., description="ID del producto al que pertenece el documento", gt=0
-    )
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ===== SCHEMA PARA RESPUESTA DE UPLOAD =====
@@ -44,6 +33,7 @@ class DocumentoUploadResponse(BaseModel):
 
     message: str
     documento: DocumentoRead
+    ocr_processed: bool = False
 
 
 # ===== SCHEMA PARA ELIMINAR DOCUMENTOS =====
@@ -51,20 +41,40 @@ class DocumentoDelete(BaseModel):
     """Schema para la respuesta al eliminar un documento."""
 
     message: str
-    documentoid: int
+    documento_id: UUID
 
 
 # ===== SCHEMA SIMPLIFICADO PARA LISTADO =====
 class DocumentoListItem(BaseModel):
     """Schema simplificado para listar documentos."""
 
-    documentoid: int = Field(..., alias="DocumentoID")
-    nombrearchivo: str = Field(..., alias="NombreArchivo")
-    url_gcs: str = Field(..., alias="URL_GCS")
-    content_type: Optional[str] = Field(None, alias="ContentType")
-    size_bytes: Optional[int] = Field(None, alias="SizeBytes")
-    fecha_subida: datetime = Field(..., alias="FechaSubida")
+    id: UUID
+    producto_id: UUID
+    nombre_archivo: str
+    url_gcs: str
+    content_type: Optional[str] = None
+    size_bytes: Optional[int] = None
+    metadata_ocr: Optional[Dict[str, Any]] = None  # OCR summary
+    fecha_subida: datetime
 
-    class Config:
-        from_attributes = True
-        populate_by_name = True
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ===== SCHEMA PARA GENERAR SIGNED URL =====
+class SignedUrlResponse(BaseModel):
+    """Response con URL firmada de GCS."""
+
+    documento_id: UUID
+    signed_url: str
+    expires_in_seconds: int
+
+
+# ===== SCHEMA PARA OCR RESULTADO =====
+class OcrResult(BaseModel):
+    """Schema para el resultado del OCR."""
+
+    texto_completo: str
+    datos_estructurados: Dict[str, Any]
+    confianza: float
+    raw_entities: list = []
+    total_entities: int = 0

@@ -1,24 +1,25 @@
 """
-Esquemas Pydantic para validación de categorías.
+Esquemas Pydantic para validación de categorías (Supabase).
 Soporta categorías personalizadas por usuario con colores.
 """
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from datetime import datetime
 from typing import Optional
+from uuid import UUID
 import re
 
 
 # Schema base de Categoría
 class CategoriaBase(BaseModel):
-    NombreCategoria: str = Field(
+    nombre_categoria: str = Field(
         ..., min_length=1, max_length=100, description="Nombre de la categoría"
     )
-    Color: str = Field(
+    color: str = Field(
         default="#007BFF", description="Color en formato hexadecimal (#RRGGBB)"
     )
 
-    @field_validator("Color")
+    @field_validator("color")
     @classmethod
     def validate_color(cls, v: str) -> str:
         """Valida que el color sea un código hexadecimal válido"""
@@ -36,10 +37,10 @@ class CategoriaCreate(CategoriaBase):
 
 # Schema para actualizar categoría (PUT/PATCH)
 class CategoriaUpdate(BaseModel):
-    NombreCategoria: Optional[str] = Field(None, min_length=1, max_length=100)
-    Color: Optional[str] = None
+    nombre_categoria: Optional[str] = Field(None, min_length=1, max_length=100)
+    color: Optional[str] = None
 
-    @field_validator("Color")
+    @field_validator("color")
     @classmethod
     def validate_color(cls, v: Optional[str]) -> Optional[str]:
         if v and not re.match(r"^#[0-9A-Fa-f]{6}$", v):
@@ -50,17 +51,16 @@ class CategoriaUpdate(BaseModel):
 
 
 # Schema de respuesta de Categoría
-class Categoria(CategoriaBase):
-    CategoriaID: int
-    UsuarioID: int
-    FechaCreacion: datetime
+class CategoriaRead(CategoriaBase):
+    id: UUID
+    user_id: UUID
+    created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Schema extendido con conteo de productos
-class CategoriaWithProducts(Categoria):
-    TotalProductos: int = Field(
+class CategoriaWithProducts(CategoriaRead):
+    total_productos: int = Field(
         default=0, description="Cantidad de productos en esta categoría"
     )

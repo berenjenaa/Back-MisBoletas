@@ -14,12 +14,10 @@ class Settings(BaseSettings):
     Lee automáticamente del archivo .env
     """
 
-    # === CONFIGURACIÓN DE BASE DE DATOS ===
-    DATABASE_URL: str  # DESDE .ENV (Render la proporciona)
-    EXTERNAL_DATABASE_URL: Optional[str] = (
-        None  # DESDE .ENV (opcional, para conexiones externas)
-    )
-    ENV: str = "local"  # local o render
+    # === CONFIGURACIÓN DE BASE DE DATOS (SUPABASE) ===
+    SUPABASE_URL: str  # DESDE .ENV - URL de Supabase
+    SUPABASE_KEY: str  # DESDE .ENV - Clave de API de Supabase
+    ENV: str = "local"  # local, development o production
 
     # === CONFIGURACIÓN DE SEGURIDAD ===
     SECRET_KEY: str  # DESDE .ENV
@@ -30,7 +28,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True  # Modo debug para desarrollo
     API_PREFIX: str = "/api"  # Prefijo para todas las rutas
     ALLOW_ORIGIN: str = "*"  # Orígenes permitidos para CORS
-    PORT: int = 8000  # Puerto por defecto (Render lo sobrescribe)
+    PORT: int = 8080  # Puerto por defecto (Cloud Run estándar)
 
     # === CONFIGURACIÓN DE GOOGLE CLOUD STORAGE ===
     GCS_BUCKET_NAME: str = ""  # Nombre del bucket de GCS
@@ -43,30 +41,15 @@ class Settings(BaseSettings):
     GCS_SIGNED_URL_EXPIRATION: int = 7 * 24 * 60 * 60  # 7 días en segundos
     GCS_MAX_FILE_SIZE_MB: int = 10  # Tamaño máximo de archivo (MB)
 
-    # === CONFIGURACIÓN DE GOOGLE CLOUD STORAGE ===
-    GCS_BUCKET_NAME: str = ""
-    # ...
-
     # === CONFIGURACIÓN DE GOOGLE DOCUMENT AI ===
     DOCUMENTAI_PROJECT_ID: Optional[str] = None
     DOCUMENTAI_LOCATION: Optional[str] = None
     DOCUMENTAI_PROCESSOR_ID: Optional[str] = None
 
     @property
-    def SQLALCHEMY_DATABASE_URL(self) -> str:
-        """
-        Devuelve la URL que debe usar SQLAlchemy según el entorno:
-        - local -> EXTERNAL_DATABASE_URL
-        - render -> DATABASE_URL
-        """
-        if self.ENV == "render":
-            return self.DATABASE_URL
-        return self.EXTERNAL_DATABASE_URL or self.DATABASE_URL
-
-    @property
     def is_production(self) -> bool:
         """Verifica si estamos en producción"""
-        return self.ENV == "render"
+        return self.ENV == "production"
 
     @property
     def gcs_enabled(self) -> bool:
@@ -84,3 +67,12 @@ class Settings(BaseSettings):
 # Instancia global de configuración
 # Usar en toda la app como: from app.core.config import settings
 settings = Settings()
+
+# === INICIALIZAR CLIENTE SUPABASE ===
+try:
+    from supabase import create_client
+
+    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+except Exception as e:
+    print(f"[ERROR] Failed to initialize Supabase client: {e}")
+    supabase = None

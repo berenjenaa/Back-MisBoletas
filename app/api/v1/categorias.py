@@ -1,168 +1,173 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
 from typing import List
+from uuid import UUID
+import logging
 
-from app.core import dependencies
-from app.db.session import get_db
-from app.crud import categorias as crud_categoria
-from app.crud import product as crud_product  # <-- CORRECCIÓN (Seguridad)
+from app.core.dependencies import get_current_user_id
+from app.core.config import supabase
 from app.schemas.categorias import (
-    Categoria,
+    CategoriaBase,
     CategoriaCreate,
-    CategoriaUpdate,
+    CategoriaRead,
     CategoriaWithProducts,
 )
 
-router = APIRouter()
+router = APIRouter(prefix="/categorias", tags=["categorias"])
+logger = logging.getLogger(__name__)
 
 
-@router.get("/categorias/", response_model=List[CategoriaWithProducts])
-def read_categorias(
-    skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(get_db),
-    user_id: int = Depends(dependencies.get_current_user_id),  # <-- MEJORA
+@router.get("/", response_model=List[CategoriaRead])
+async def list_categorias(
+    user_id: UUID = Depends(get_current_user_id),
 ):
     """
-    Obtener todas las categorías del usuario con conteo de productos.
+    Obtener todas las categorías del usuario.
     """
-    categorias = crud_categoria.get_categorias_with_product_count(
-        db, usuario_id=user_id
-    )
-    return categorias
-
-
-@router.get("/categorias/{categoria_id}", response_model=Categoria)
-def read_categoria(
-    categoria_id: int,
-    db: Session = Depends(get_db),
-    user_id: int = Depends(dependencies.get_current_user_id),  # <-- MEJORA
-):
-    """
-    Obtener una categoría específica por ID.
-    """
-    categoria = crud_categoria.get_categoria(
-        db, categoria_id=categoria_id, usuario_id=user_id
-    )
-    if not categoria:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Categoría no encontrada"
+    try:
+        response = (
+            supabase.table("categorias")
+            .select("*")
+            .eq("user_id", str(user_id))
+            .execute()
         )
-    return categoria
+        return response.data
+    except Exception as e:
+        logger.error(f"[ERROR] Failed to list categorias: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error fetching categories",
+        )
 
 
-@router.post(
-    "/categorias/", response_model=Categoria, status_code=status.HTTP_201_CREATED
-)
-def create_categoria(
-    categoria: CategoriaCreate,
-    db: Session = Depends(get_db),
-    user_id: int = Depends(dependencies.get_current_user_id),  # <-- MEJORA
+@router.get("/{categoria_id}", response_model=CategoriaRead)
+async def get_categoria(
+    categoria_id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
 ):
     """
-    Crear una nueva categoría para el usuario actual.
+    Obtener una categoría específica.
     """
-    return crud_categoria.create_categoria(db, categoria=categoria, usuario_id=user_id)
+    try:
+        response = (
+            supabase.table("categorias")
+            .select("*")
+            .eq("id", str(categoria_id))
+            .eq("user_id", str(user_id))
+            .single()
+            .execute()
+        )
+        return response.data
+    except Exception as e:
+        logger.error(f"[ERROR] Categoria not found: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Categoría no encontrada",
+        )
 
 
-@router.put("/categorias/{categoria_id}", response_model=Categoria)
-def update_categoria(
-    categoria_id: int,
-    categoria: CategoriaUpdate,
-    db: Session = Depends(get_db),
-    user_id: int = Depends(dependencies.get_current_user_id),  # <-- MEJORA
+@router.post("/", response_model=CategoriaRead, status_code=status.HTTP_201_CREATED)
+async def create_categoria(
+    categoria: CategoriaCreate,
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """
+    Crear una nueva categoría.
+    """
+    try:
+        data = {
+            "user_id": str(user_id),
+            "nombre_categoria": categoria.nombre_categoria,
+            "color": categoria.color,
+        }
+        response = supabase.table("categorias").insert(data).execute()
+        return response.data[0]
+    except Exception as e:
+        logger.error(f"[ERROR] Failed to create categoria: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error creating category",
+        )
+
+
+@router.put("/{categoria_id}", response_model=CategoriaRead)
+async def update_categoria(
+    categoria_id: UUID,
+    categoria: CategoriaCreate,
+    user_id: UUID = Depends(get_current_user_id),
 ):
     """
     Actualizar una categoría existente.
     """
-    updated_categoria = crud_categoria.update_categoria(
-        db,
-        categoria_id=categoria_id,
-        categoria=categoria,
-        usuario_id=user_id,
-    )
-    if not updated_categoria:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Categoría no encontrada"
+    try:
+        # Verify ownership
+        response = (
+            supabase.table("categorias")
+            .select("*")
+            .eq("id", str(categoria_id))
+            .eq("user_id", str(user_id))
+            .single()
+            .execute()
         )
-    return updated_categoria
+
+        if not response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Categoría no encontrada",
+            )
+
+        update_data = {
+            "nombre_categoria": categoria.nombre_categoria,
+            "color": categoria.color,
+        }
+        result = (
+            supabase.table("categorias")
+            .update(update_data)
+            .eq("id", str(categoria_id))
+            .execute()
+        )
+        return result.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[ERROR] Failed to update categoria: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error updating category",
+        )
 
 
-@router.delete("/categorias/{categoria_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_categoria(
-    categoria_id: int,
-    db: Session = Depends(get_db),
-    user_id: int = Depends(dependencies.get_current_user_id),  # <-- MEJORA
+@router.delete("/{categoria_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_categoria(
+    categoria_id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
 ):
     """
     Eliminar una categoría.
     """
-    success = crud_categoria.delete_categoria(
-        db, categoria_id=categoria_id, usuario_id=user_id
-    )
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Categoría no encontrada"
-        )
-    return None
-
-
-@router.post(
-    "/productos/{producto_id}/categorias/{categoria_id}",
-    status_code=status.HTTP_201_CREATED,
-)
-def asignar_categoria_a_producto(
-    producto_id: int,
-    categoria_id: int,
-    db: Session = Depends(get_db),
-    user_id: int = Depends(dependencies.get_current_user_id),  # <-- MEJORA
-):
-    """
-    Asignar una categoría a un producto.
-    """
-    # --- CORRECCIÓN DE SEGURIDAD ---
-    # 1. Verificar que la categoría pertenece al usuario
-    categoria = crud_categoria.get_categoria(db, categoria_id, user_id)
-    if not categoria:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Categoría no encontrada o no te pertenece",
+    try:
+        # Verify ownership first
+        response = (
+            supabase.table("categorias")
+            .select("*")
+            .eq("id", str(categoria_id))
+            .eq("user_id", str(user_id))
+            .single()
+            .execute()
         )
 
-    # 2. Verificar que el producto pertenece al usuario
-    producto = crud_product.get_product_by_id(db, producto_id, user_id)
-    if not producto:
+        if not response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Categoría no encontrada",
+            )
+
+        supabase.table("categorias").delete().eq("id", str(categoria_id)).execute()
+        return None
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[ERROR] Failed to delete categoria: {e}")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Producto no encontrado o no te pertenece",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error deleting category",
         )
-    # --- FIN DE CORRECCIÓN ---
-
-    return crud_categoria.asignar_categoria_a_producto(db, producto_id, categoria_id)
-
-
-@router.delete(
-    "/productos/{producto_id}/categorias/{categoria_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def quitar_categoria_de_producto(
-    producto_id: int,
-    categoria_id: int,
-    db: Session = Depends(get_db),
-    user_id: int = Depends(dependencies.get_current_user_id),  # <-- MEJORA
-):
-    """
-    Quitar una categoría de un producto.
-    """
-    # --- CORRECCIÓN DE SEGURIDAD (Implícita) ---
-    # Sería bueno verificar la propiedad del producto aquí también,
-    # pero el CRUD ya debería manejar la lógica de borrado de forma segura.
-    # (Asumiendo que quitar_categoria_de_producto no falla si no existe)
-    # ---
-    success = crud_categoria.quitar_categoria_de_producto(db, producto_id, categoria_id)
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Relación producto-categoría no encontrada",
-        )
-    return None

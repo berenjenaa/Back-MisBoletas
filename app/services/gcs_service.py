@@ -10,7 +10,10 @@ from fastapi import HTTPException, UploadFile
 from typing import Optional
 import uuid
 import os
+import logging
 from datetime import timedelta
+
+logger = logging.getLogger(__name__)
 
 
 class GCSService:
@@ -69,7 +72,7 @@ class GCSService:
         if file_size > max_size_bytes:
             raise HTTPException(status_code=400, detail=f"Archivo muy grande")
 
-    def _generate_blob_name(self, user_id: int, product_id: int, filename: str) -> str:
+    def _generate_blob_name(self, user_id: str, product_id: str, filename: str) -> str:
         """Genera un nombre único para el blob en GCS."""
         unique_id = str(uuid.uuid4())[:8]
         safe_filename = "".join(
@@ -79,7 +82,7 @@ class GCSService:
         return blob_name
 
     async def upload_file(
-        self, file: UploadFile, user_id: int, product_id: int
+        self, file: UploadFile, user_id: str, product_id: str
     ) -> dict:
         """Sube un archivo a Google Cloud Storage."""
         try:
@@ -92,25 +95,29 @@ class GCSService:
                 content_type=file.content_type or "application/octet-stream",
             )
 
-            # No llamar a make_public() si el bucket tiene Uniform bucket-level access
-            # En su lugar, usar la URL pública directamente
             public_url = (
                 f"https://storage.googleapis.com/{settings.GCS_BUCKET_NAME}/{blob_name}"
+            )
+            gcs_uri = f"gs://{settings.GCS_BUCKET_NAME}/{blob_name}"
+            file_size = len(file_content)
+
+            logger.info(
+                f"[OK] File uploaded to GCS. Blob: {blob_name}, Size: {file_size} bytes"
             )
 
             return {
                 "blob_name": blob_name,
                 "public_url": public_url,
+                "gcs_uri": gcs_uri,
                 "content_type": file.content_type,
-                "size_bytes": len(file_content),
+                "size_bytes": file_size,
                 "filename": file.filename,
             }
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(
-                status_code=500, detail=f"Error al subir archivo: {str(e)}"
-            )
+            logger.error(f"[ERROR] Failed to upload file: {e}")
+            raise HTTPException(status_code=500, detail=f"File upload error: {str(e)}")
 
     def delete_file(self, blob_name: str) -> bool:
         """Elimina un archivo de Google Cloud Storage."""
@@ -118,14 +125,16 @@ class GCSService:
             blob = self.bucket.blob(blob_name)
             if blob.exists():
                 blob.delete()
+                logger.info(f"[OK] File deleted from GCS: {blob_name}")
                 return True
             else:
-                raise HTTPException(status_code=404, detail="Archivo no encontrado")
+                raise HTTPException(status_code=404, detail="File not found")
         except HTTPException:
             raise
         except Exception as e:
+            logger.error(f"[ERROR] Failed to delete file: {e}")
             raise HTTPException(
-                status_code=500, detail=f"Error al eliminar archivo: {str(e)}"
+                status_code=500, detail=f"File deletion error: {str(e)}"
             )
 
     def get_signed_url(
@@ -135,18 +144,20 @@ class GCSService:
         try:
             blob = self.bucket.blob(blob_name)
             if not blob.exists():
-                raise HTTPException(status_code=404, detail="Archivo no encontrado")
+                raise HTTPException(status_code=404, detail="File not found")
 
             expiration = expiration_seconds or settings.GCS_SIGNED_URL_EXPIRATION
             url = blob.generate_signed_url(
                 version="v4", expiration=timedelta(seconds=expiration), method="GET"
             )
+            logger.info(f"[OK] Signed URL generated for: {blob_name}")
             return url
         except HTTPException:
             raise
         except Exception as e:
+            logger.error(f"[ERROR] Failed to generate signed URL: {e}")
             raise HTTPException(
-                status_code=500, detail=f"Error al generar URL: {str(e)}"
+                status_code=500, detail=f"URL generation error: {str(e)}"
             )
 
     def file_exists(self, blob_name: str) -> bool:
