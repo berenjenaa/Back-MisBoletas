@@ -141,7 +141,9 @@ async def update_product(
         if product_data.fecha_compra is not None:
             update_data["fecha_compra"] = product_data.fecha_compra
         if product_data.duracion_garantia_meses is not None:
-            update_data["duracion_garantia_meses"] = product_data.duracion_garantia_meses
+            update_data["duracion_garantia_meses"] = (
+                product_data.duracion_garantia_meses
+            )
         if product_data.marca is not None:
             update_data["marca"] = product_data.marca
         if product_data.modelo is not None:

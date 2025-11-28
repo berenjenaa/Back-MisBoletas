@@ -161,7 +161,9 @@ async def delete_categoria(
                 detail="Categoría no encontrada",
             )
 
-        supabase.table("categorias").delete().eq("id_categoria", str(categoria_id)).execute()
+        supabase.table("categorias").delete().eq(
+            "id_categoria", str(categoria_id)
+        ).execute()
         return None
     except HTTPException:
         raise
