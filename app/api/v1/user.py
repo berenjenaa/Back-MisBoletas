@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from uuid import UUID
+from datetime import datetime
 import logging
 
 from app.core.config import supabase
@@ -27,8 +28,7 @@ class UserLoginRequest(BaseModel):
 class UserAuthResponse(BaseModel):
     access_token: str
     token_type: str
-    user_id: UUID
-    email: str
+    user: dict  # Contiene: idUsuario, nombre, correo, fechaRegistro
 
 
 class UserUpdateRequest(BaseModel):
@@ -94,8 +94,12 @@ async def register(data: UserRegisterRequest):
         return {
             "access_token": res.session.access_token if res.session else "",
             "token_type": "bearer",
-            "user_id": user_id,
-            "email": data.correo,
+            "user": {
+                "idUsuario": str(user_id),
+                "nombre": data.nombre or data.correo.split("@")[0],
+                "correo": data.correo,
+                "fechaRegistro": datetime.now().isoformat(),
+            },
         }
 
     except HTTPException:
@@ -135,11 +139,33 @@ async def login(data: UserLoginRequest):
 
         logger.info(f"[OK] User logged in: {data.correo}")
 
+        # Obtener datos del perfil del usuario
+        try:
+            profile = (
+                supabase.table("profiles")
+                .select("*")
+                .eq("id", str(user_id))
+                .single()
+                .execute()
+            )
+            nombre = (
+                profile.data.get("nombre_usuario", data.correo.split("@")[0])
+                if profile.data
+                else data.correo.split("@")[0]
+            )
+        except Exception as e:
+            logger.warning(f"[WARNING] Could not fetch profile: {e}")
+            nombre = data.correo.split("@")[0]
+
         return {
             "access_token": res.session.access_token,
             "token_type": "bearer",
-            "user_id": user_id,
-            "email": data.correo,
+            "user": {
+                "idUsuario": str(user_id),
+                "nombre": nombre,
+                "correo": data.correo,
+                "fechaRegistro": datetime.now().isoformat(),
+            },
         }
 
     except HTTPException:
