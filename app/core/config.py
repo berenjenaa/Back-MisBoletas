@@ -75,9 +75,9 @@ settings = Settings()
 try:
     from supabase import create_client
 
-    # Usar service_role_key para tener acceso completo sin restricciones RLS
-    # Cambio: Era "settings.SUPABASE_KEY" (anon) → Ahora "settings.SUPABASE_SERVICE_ROLE_KEY" (service role)
-    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
+    # Usar anon_key (RLS está deshabilitado en las tablas, así que funciona)
+    # Cambio: Era "settings.SUPABASE_SERVICE_ROLE_KEY" → Ahora "settings.SUPABASE_KEY" (ya que RLS deshabilitado)
+    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
 except Exception as e:
     print(f"[ERROR] Failed to initialize Supabase client: {e}")
     supabase = None
