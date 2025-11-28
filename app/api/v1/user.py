@@ -28,7 +28,7 @@ class UserLoginRequest(BaseModel):
 class UserAuthResponse(BaseModel):
     access_token: str
     token_type: str
-    user: dict  # Contiene: idUsuario, nombre, correo, fechaRegistro
+    user: dict  # Contiene: id_usuario, email, nombre_completo, fecha_registro
 
 
 class UserUpdateRequest(BaseModel):
@@ -77,13 +77,13 @@ async def register(data: UserRegisterRequest):
 
         user_id = UUID(res.user.id)
 
-        # Crear perfil en tabla profiles
+        # Crear perfil en tabla perfiles
         try:
-            supabase.table("profiles").insert(
+            supabase.table("perfiles").insert(
                 {
-                    "id": str(user_id),
+                    "id_usuario": str(user_id),
                     "email": data.correo,
-                    "nombre_usuario": data.nombre or data.correo.split("@")[0],
+                    "nombre_completo": data.nombre or data.correo.split("@")[0],
                 }
             ).execute()
         except Exception as e:
@@ -95,10 +95,10 @@ async def register(data: UserRegisterRequest):
             "access_token": res.session.access_token if res.session else "",
             "token_type": "bearer",
             "user": {
-                "idUsuario": str(user_id),
-                "nombre": data.nombre or data.correo.split("@")[0],
-                "correo": data.correo,
-                "fechaRegistro": datetime.now().isoformat(),
+                "id_usuario": str(user_id),
+                "email": data.correo,
+                "nombre_completo": data.nombre or data.correo.split("@")[0],
+                "fecha_registro": datetime.now().isoformat(),
             },
         }
 
@@ -142,29 +142,35 @@ async def login(data: UserLoginRequest):
         # Obtener datos del perfil del usuario
         try:
             profile = (
-                supabase.table("profiles")
+                supabase.table("perfiles")
                 .select("*")
-                .eq("id", str(user_id))
+                .eq("id_usuario", str(user_id))
                 .single()
                 .execute()
             )
-            nombre = (
-                profile.data.get("nombre_usuario", data.correo.split("@")[0])
+            nombre_completo = (
+                profile.data.get("nombre_completo", data.correo.split("@")[0])
                 if profile.data
                 else data.correo.split("@")[0]
             )
+            fecha_registro = (
+                profile.data.get("fecha_registro", datetime.now().isoformat())
+                if profile.data
+                else datetime.now().isoformat()
+            )
         except Exception as e:
             logger.warning(f"[WARNING] Could not fetch profile: {e}")
-            nombre = data.correo.split("@")[0]
+            nombre_completo = data.correo.split("@")[0]
+            fecha_registro = datetime.now().isoformat()
 
         return {
             "access_token": res.session.access_token,
             "token_type": "bearer",
             "user": {
-                "idUsuario": str(user_id),
-                "nombre": nombre,
-                "correo": data.correo,
-                "fechaRegistro": datetime.now().isoformat(),
+                "id_usuario": str(user_id),
+                "email": data.correo,
+                "nombre_completo": nombre_completo,
+                "fecha_registro": fecha_registro,
             },
         }
 
