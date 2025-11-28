@@ -14,14 +14,14 @@ router = APIRouter(prefix="/users", tags=["usuarios"])
 
 # Schemas para request/response
 class UserRegisterRequest(BaseModel):
-    email: EmailStr
-    password: str
-    nombre_usuario: Optional[str] = None
+    correo: EmailStr
+    contrasena: str
+    nombre: Optional[str] = None
 
 
 class UserLoginRequest(BaseModel):
-    email: EmailStr
-    password: str
+    correo: EmailStr
+    contrasena: str
 
 
 class UserAuthResponse(BaseModel):
@@ -65,7 +65,7 @@ async def register(data: UserRegisterRequest):
     """
     try:
         # Registrar en Supabase Auth
-        res = supabase.auth.sign_up({"email": data.email, "password": data.password})
+        res = supabase.auth.sign_up({"email": data.correo, "password": data.contrasena})
 
         if not res.user:
             error_msg = str(res) if res else "Unknown error"
@@ -82,20 +82,20 @@ async def register(data: UserRegisterRequest):
             supabase.table("profiles").insert(
                 {
                     "id": str(user_id),
-                    "email": data.email,
-                    "nombre_usuario": data.nombre_usuario or data.email.split("@")[0],
+                    "email": data.correo,
+                    "nombre_usuario": data.nombre or data.correo.split("@")[0],
                 }
             ).execute()
         except Exception as e:
             logger.warning(f"[WARNING] Could not create profile: {e}")
 
-        logger.info(f"[OK] User registered: {data.email}")
+        logger.info(f"[OK] User registered: {data.correo}")
 
         return {
             "access_token": res.session.access_token if res.session else "",
             "token_type": "bearer",
             "user_id": user_id,
-            "email": data.email,
+            "email": data.correo,
         }
 
     except HTTPException:
@@ -123,7 +123,7 @@ async def login(data: UserLoginRequest):
     try:
         # Login en Supabase Auth
         res = supabase.auth.sign_in_with_password(
-            {"email": data.email, "password": data.password}
+            {"email": data.correo, "password": data.contrasena}
         )
 
         if not res.user or not res.session:
@@ -133,13 +133,13 @@ async def login(data: UserLoginRequest):
 
         user_id = UUID(res.user.id)
 
-        logger.info(f"[OK] User logged in: {data.email}")
+        logger.info(f"[OK] User logged in: {data.correo}")
 
         return {
             "access_token": res.session.access_token,
             "token_type": "bearer",
             "user_id": user_id,
-            "email": data.email,
+            "email": data.correo,
         }
 
     except HTTPException:
