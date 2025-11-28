@@ -32,7 +32,9 @@ class ProductRead(BaseModel):
     tienda: Optional[str] = None
     notas: Optional[str] = None
     precio: Optional[Decimal] = None
-    fecha_creacion: datetime
+    fecha_creacion: Optional[str] = (
+        None  # Cambio: datetime → Optional[str] para compatibilidad con Supabase
+    )
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -54,7 +54,9 @@ class CategoriaUpdate(BaseModel):
 class CategoriaRead(CategoriaBase):
     id_categoria: UUID
     id_usuario: UUID
-    fecha_creacion: datetime
+    fecha_creacion: Optional[str] = (
+        None  # Cambio: datetime → Optional[str] para compatibilidad con Supabase
+    )
 
     model_config = ConfigDict(from_attributes=True)
 

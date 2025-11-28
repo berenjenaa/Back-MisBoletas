@@ -16,7 +16,10 @@ class Settings(BaseSettings):
 
     # === CONFIGURACIÓN DE BASE DE DATOS (SUPABASE) ===
     SUPABASE_URL: str  # DESDE .ENV - URL de Supabase
-    SUPABASE_KEY: str  # DESDE .ENV - Clave de API de Supabase
+    SUPABASE_KEY: str  # DESDE .ENV - Clave de API de Supabase (anon key)
+    SUPABASE_SERVICE_ROLE_KEY: (
+        str  # DESDE .ENV - Service role key (sin restricciones RLS)
+    )
     ENV: str = "local"  # local, development o production
 
     # === CONFIGURACIÓN DE SEGURIDAD ===
@@ -72,7 +75,9 @@ settings = Settings()
 try:
     from supabase import create_client
 
-    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+    # Usar service_role_key para tener acceso completo sin restricciones RLS
+    # Cambio: Era "settings.SUPABASE_KEY" (anon) → Ahora "settings.SUPABASE_SERVICE_ROLE_KEY" (service role)
+    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
 except Exception as e:
     print(f"[ERROR] Failed to initialize Supabase client: {e}")
     supabase = None
