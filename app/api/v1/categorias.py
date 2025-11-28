@@ -27,7 +27,7 @@ async def list_categorias(
         response = (
             supabase.table("categorias")
             .select("*")
-            .eq("user_id", str(user_id))
+            .eq("id_usuario", str(user_id))
             .execute()
         )
         return response.data
@@ -51,8 +51,8 @@ async def get_categoria(
         response = (
             supabase.table("categorias")
             .select("*")
-            .eq("id", str(categoria_id))
-            .eq("user_id", str(user_id))
+            .eq("id_categoria", str(categoria_id))
+            .eq("id_usuario", str(user_id))
             .single()
             .execute()
         )
@@ -75,8 +75,8 @@ async def create_categoria(
     """
     try:
         data = {
-            "user_id": str(user_id),
-            "nombre_categoria": categoria.nombre_categoria,
+            "id_usuario": str(user_id),
+            "nombre": categoria.nombre,
             "color": categoria.color,
         }
         response = supabase.table("categorias").insert(data).execute()
@@ -103,8 +103,8 @@ async def update_categoria(
         response = (
             supabase.table("categorias")
             .select("*")
-            .eq("id", str(categoria_id))
-            .eq("user_id", str(user_id))
+            .eq("id_categoria", str(categoria_id))
+            .eq("id_usuario", str(user_id))
             .single()
             .execute()
         )
@@ -116,7 +116,7 @@ async def update_categoria(
             )
 
         update_data = {
-            "nombre_categoria": categoria.nombre_categoria,
+            "nombre": categoria.nombre,
             "color": categoria.color,
         }
         result = (
@@ -149,8 +149,8 @@ async def delete_categoria(
         response = (
             supabase.table("categorias")
             .select("*")
-            .eq("id", str(categoria_id))
-            .eq("user_id", str(user_id))
+            .eq("id_categoria", str(categoria_id))
+            .eq("id_usuario", str(user_id))
             .single()
             .execute()
         )
@@ -161,7 +161,7 @@ async def delete_categoria(
                 detail="Categoría no encontrada",
             )
 
-        supabase.table("categorias").delete().eq("id", str(categoria_id)).execute()
+        supabase.table("categorias").delete().eq("id_categoria", str(categoria_id)).execute()
         return None
     except HTTPException:
         raise

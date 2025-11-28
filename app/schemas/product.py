@@ -9,7 +9,7 @@ from uuid import UUID
 class CategoriaSimple(BaseModel):
     """Schema simplificado de categoría para incluir en productos"""
 
-    id: UUID
+    id_categoria: UUID
     nombre: str
     color: Optional[str] = None
 
@@ -22,19 +22,17 @@ class CategoriaSimple(BaseModel):
 class ProductRead(BaseModel):
     """Schema para leer un producto desde Supabase."""
 
-    id: UUID
-    user_id: UUID
+    id_producto: UUID
+    id_usuario: UUID
     nombre: str
     fecha_compra: Optional[date] = None
-    duracion_garantia: Optional[int] = None
+    duracion_garantia_meses: Optional[int] = None
     marca: Optional[str] = None
     modelo: Optional[str] = None
     tienda: Optional[str] = None
     notas: Optional[str] = None
     precio: Optional[Decimal] = None
-    creado_en: datetime
-    actualizado_en: Optional[datetime] = None
-    categorias: List[CategoriaSimple] = []
+    fecha_creacion: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -44,7 +42,7 @@ class ProductCreate(BaseModel):
 
     nombre: str = Field(..., min_length=1, max_length=255)
     fecha_compra: Optional[date] = None
-    duracion_garantia: Optional[int] = Field(None, ge=0, le=120)
+    duracion_garantia_meses: Optional[int] = Field(None, ge=0, le=120)
     marca: Optional[str] = Field(None, max_length=100)
     modelo: Optional[str] = Field(None, max_length=100)
     tienda: Optional[str] = Field(None, max_length=255)
@@ -58,7 +56,7 @@ class ProductUpdate(BaseModel):
 
     nombre: Optional[str] = Field(None, min_length=1, max_length=255)
     fecha_compra: Optional[date] = None
-    duracion_garantia: Optional[int] = Field(None, ge=0, le=120)
+    duracion_garantia_meses: Optional[int] = Field(None, ge=0, le=120)
     marca: Optional[str] = Field(None, max_length=100)
     modelo: Optional[str] = Field(None, max_length=100)
     tienda: Optional[str] = Field(None, max_length=255)

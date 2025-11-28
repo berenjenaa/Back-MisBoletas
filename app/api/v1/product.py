@@ -28,7 +28,7 @@ async def get_products(
         response = (
             supabase.table("productos")
             .select("*")
-            .eq("user_id", str(user_id))
+            .eq("id_usuario", str(user_id))
             .execute()
         )
 
@@ -55,8 +55,8 @@ async def get_product(
         response = (
             supabase.table("productos")
             .select("*")
-            .eq("id", str(product_id))
-            .eq("user_id", str(user_id))
+            .eq("id_producto", str(product_id))
+            .eq("id_usuario", str(user_id))
             .single()
             .execute()
         )
@@ -92,10 +92,10 @@ async def create_product(
     try:
         # Preparar datos para insertar
         insert_data = {
-            "user_id": str(user_id),
+            "id_usuario": str(user_id),
             "nombre": product_data.nombre,
             "fecha_compra": product_data.fecha_compra,
-            "duracion_garantia": product_data.duracion_garantia,
+            "duracion_garantia_meses": product_data.duracion_garantia_meses,
             "marca": product_data.marca,
             "modelo": product_data.modelo,
             "tienda": product_data.tienda,
@@ -140,8 +140,8 @@ async def update_product(
             update_data["nombre"] = product_data.nombre
         if product_data.fecha_compra is not None:
             update_data["fecha_compra"] = product_data.fecha_compra
-        if product_data.duracion_garantia is not None:
-            update_data["duracion_garantia"] = product_data.duracion_garantia
+        if product_data.duracion_garantia_meses is not None:
+            update_data["duracion_garantia_meses"] = product_data.duracion_garantia_meses
         if product_data.marca is not None:
             update_data["marca"] = product_data.marca
         if product_data.modelo is not None:
@@ -156,8 +156,8 @@ async def update_product(
         response = (
             supabase.table("productos")
             .update(update_data)
-            .eq("id", str(product_id))
-            .eq("user_id", str(user_id))
+            .eq("id_producto", str(product_id))
+            .eq("id_usuario", str(user_id))
             .execute()
         )
 
@@ -198,7 +198,7 @@ async def delete_product(
         docs_response = (
             supabase.table("documentos")
             .select("blob_name, url_gcs")
-            .eq("producto_id", str(product_id))
+            .eq("id_producto", str(product_id))
             .execute()
         )
 
@@ -231,7 +231,7 @@ async def delete_product(
 
         # 3. Eliminar documentos de Supabase (cascade)
         supabase.table("documentos").delete().eq(
-            "producto_id", str(product_id)
+            "id_producto", str(product_id)
         ).execute()
 
         # 4. Eliminar producto

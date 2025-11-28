@@ -12,11 +12,11 @@ import re
 
 # Schema base de Categoría
 class CategoriaBase(BaseModel):
-    nombre_categoria: str = Field(
+    nombre: str = Field(
         ..., min_length=1, max_length=100, description="Nombre de la categoría"
     )
     color: str = Field(
-        default="#007BFF", description="Color en formato hexadecimal (#RRGGBB)"
+        default="#E77573", description="Color en formato hexadecimal (#RRGGBB)"
     )
 
     @field_validator("color")
@@ -37,7 +37,7 @@ class CategoriaCreate(CategoriaBase):
 
 # Schema para actualizar categoría (PUT/PATCH)
 class CategoriaUpdate(BaseModel):
-    nombre_categoria: Optional[str] = Field(None, min_length=1, max_length=100)
+    nombre: Optional[str] = Field(None, min_length=1, max_length=100)
     color: Optional[str] = None
 
     @field_validator("color")
@@ -52,9 +52,9 @@ class CategoriaUpdate(BaseModel):
 
 # Schema de respuesta de Categoría
 class CategoriaRead(CategoriaBase):
-    id: UUID
-    user_id: UUID
-    created_at: datetime
+    id_categoria: UUID
+    id_usuario: UUID
+    fecha_creacion: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
