@@ -1,7 +1,7 @@
 # En app/api/v1/tickets.py
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi_mail import MessageSchema, MessageType
+from fastapi_mail import FastMail, MessageSchema, MessageType
 from typing import List
 from uuid import UUID
 import logging

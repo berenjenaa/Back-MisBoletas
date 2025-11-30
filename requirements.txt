@@ -9,7 +9,7 @@ pydantic-settings==2.10.1
 python-dotenv==1.1.1
 
 # === Email ===
-fastapi-mail==0.1.5
+fastapi-mail==1.4.1
 
 # === Seguridad y autenticación ===
 passlib[bcrypt]==1.7.4
