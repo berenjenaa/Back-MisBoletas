@@ -23,12 +23,13 @@ router = APIRouter(prefix="/productos", tags=["productos"])
 async def get_products(
     user_id: UUID = Depends(get_current_user_id),
 ):
-    """Obtiene todos los productos del usuario autenticado."""
+    """Obtiene todos los productos del usuario autenticado (excluyendo eliminados)."""
     try:
         response = (
             supabase.table("productos")
             .select("*")
             .eq("id_usuario", str(user_id))
+            .is_("fecha_eliminacion", "null")
             .execute()
         )
 
@@ -50,13 +51,14 @@ async def get_product(
     product_id: UUID,
     user_id: UUID = Depends(get_current_user_id),
 ):
-    """Obtiene un producto específico por ID (con verificación de ownership)."""
+    """Obtiene un producto específico por ID (con verificación de ownership, excluyendo eliminados)."""
     try:
         response = (
             supabase.table("productos")
             .select("*")
             .eq("id_producto", str(product_id))
             .eq("id_usuario", str(user_id))
+            .is_("fecha_eliminacion", "null")
             .single()
             .execute()
         )
@@ -184,70 +186,52 @@ async def update_product(
 @router.delete(
     "/{product_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Eliminar un producto",
+    summary="Eliminar un producto (Soft Delete)",
 )
 async def delete_product(
     product_id: UUID,
     user_id: UUID = Depends(get_current_user_id),
 ):
     """
-    Elimina un producto y sus documentos asociados.
+    Realiza un Soft Delete (borrado lógico) de un producto.
 
-    Nota: Los documentos en GCS se eliminarán también.
+    El producto no se elimina físicamente, solo se marca con una fecha_eliminacion.
+    Esto permite recuperarlo si es necesario desde la tabla de auditoría.
     """
     try:
-        # 1. Obtener documentos asociados para eliminar de GCS
-        docs_response = (
-            supabase.table("documentos")
-            .select("blob_name, url_gcs")
+        from datetime import datetime
+
+        # Verificar que el producto existe y pertenece al usuario
+        check_response = (
+            supabase.table("productos")
+            .select("id_producto")
             .eq("id_producto", str(product_id))
+            .eq("id_usuario", str(user_id))
+            .is_("fecha_eliminacion", "null")
+            .single()
             .execute()
         )
 
-        documentos = docs_response.data or []
+        if not check_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado"
+            )
 
-        # 2. Importar gcs_service para eliminar archivos
-        from app.services.gcs_service import get_gcs_service
-        from app.core.config import settings
+        # Realizar Soft Delete (UPDATE con fecha_eliminacion)
+        update_data = {"fecha_eliminacion": datetime.utcnow().isoformat()}
 
-        if settings.gcs_enabled and documentos:
-            gcs_service = get_gcs_service()
-            if gcs_service:
-                for doc in documentos:
-                    try:
-                        # Usar blob_name directamente si está disponible
-                        blob_name = doc.get("blob_name")
-                        if not blob_name:
-                            url = doc.get("url_gcs", "")
-                            if url:
-                                blob_name = url.split(f"{settings.GCS_BUCKET_NAME}/")[
-                                    -1
-                                ]
-
-                        if blob_name:
-                            gcs_service.delete_file(blob_name)
-                    except Exception as e:
-                        logger.warning(
-                            f"[WARNING] GCS deletion failed for document: {e}"
-                        )
-
-        # 3. Eliminar documentos de Supabase (cascade)
-        supabase.table("documentos").delete().eq(
-            "id_producto", str(product_id)
-        ).execute()
-
-        # 4. Eliminar producto
         response = (
             supabase.table("productos")
-            .delete()
-            .eq("id", str(product_id))
-            .eq("user_id", str(user_id))
+            .update(update_data)
+            .eq("id_producto", str(product_id))
+            .eq("id_usuario", str(user_id))
             .execute()
         )
 
         if not response.data:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error al eliminar producto",
             )
 
         return None

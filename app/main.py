@@ -2,7 +2,7 @@ import logging
 from fastapi import FastAPI
 
 # --- Importación de Routers ---
-from app.api.v1 import user, product, documento, categorias, ocr
+from app.api.v1 import user, product, documento, categorias, tickets
 
 # --- Importaciones del Core ---
 from app.core.middleware import setup_middleware
@@ -27,40 +27,46 @@ def startup_event():
 tags_metadata = [
     {
         "name": "Usuarios",
-        "description": "Autenticación y gestión de tu cuenta. [EMPEZAR AQUI]",
-    },
-    {
-        "name": "OCR",
-        "description": "Procesamiento y extracción de datos de documentos (boletas).",
+        "description": "Autenticación y gestión de tu cuenta. Comienza aquí.",
     },
     {
         "name": "Productos",
-        "description": "Gestión de tus productos.",
+        "description": "Crear, listar y gestionar tus productos.",
     },
     {
         "name": "Categorías",
-        "description": "Organización de productos por categorías.",
+        "description": "Organizar productos por categorías personalizadas.",
     },
     {
         "name": "Documentos",
-        "description": "Subida y gestión de archivos (boletas, garantías).",
+        "description": "Subir archivos (boletas, garantías) con OCR automático.",
+    },
+    {
+        "name": "Tickets",
+        "description": "Gestión de tickets de soporte técnico.",
     },
 ]
 
 # --- 3. Descripción detallada para /docs ---
 api_description = """
-Bienvenido a la API de MisBoletas.
+API MisBoletas - Gestión de Productos y Documentos
 
-Esta API te permite gestionar usuarios, productos y sus documentos (boletas/garantías),
-incluyendo la extracción automática de datos mediante OCR.
+Esta API permite gestionar productos, documentos y realizar extracción automática de datos mediante OCR.
 
-## Guía de Primeros Pasos
+## Primeros Pasos
 
-1.  [Regístrate] POST /api/v1/users/register
-2.  [Inicia Sesión] POST /api/v1/users/login (Obtén tu token)
-3.  [Autoriza] Usa el botón "Authorize" con tu Bearer token.
-4.  [Prueba el OCR] POST /api/v1/ocr/procesar-boleta (Sube una imagen de boleta)
-5.  [Gestiona] Usa los endpoints de /productos, /categorias, /documentos.
+1. POST /api/v1/users/register - Crear cuenta
+2. POST /api/v1/users/login - Obtener token
+3. Usar el botón "Authorize" con tu Bearer token
+4. Crear productos en /api/v1/productos
+5. Subir documentos con OCR en /api/v1/documentos/upload/{producto_id}
+
+## Modulos Principales
+
+- Usuarios: Registro, login y gestión de perfiles
+- Productos: Crear, listar, actualizar y eliminar productos
+- Documentos: Subir archivos con OCR automático
+- Categorías: Organizar productos
 """
 
 # --- 4. Crear aplicación FastAPI ---
@@ -82,10 +88,10 @@ setup_exception_handlers(app)
 api_v1_prefix = "/api/v1"
 
 app.include_router(user.router, prefix=api_v1_prefix, tags=["Usuarios"])
-app.include_router(ocr.router, prefix=api_v1_prefix, tags=["OCR"])
 app.include_router(product.router, prefix=api_v1_prefix, tags=["Productos"])
 app.include_router(categorias.router, prefix=api_v1_prefix, tags=["Categorías"])
 app.include_router(documento.router, prefix=api_v1_prefix, tags=["Documentos"])
+app.include_router(tickets.router, prefix=api_v1_prefix, tags=["Tickets"])
 
 
 # --- 8. Endpoints de la App Principal (Raíz y Salud) ---

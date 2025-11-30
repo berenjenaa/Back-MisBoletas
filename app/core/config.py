@@ -15,10 +15,10 @@ class Settings(BaseSettings):
     """
 
     # === CONFIGURACIÓN DE BASE DE DATOS (SUPABASE) ===
-    SUPABASE_URL: str  # DESDE .ENV - URL de Supabase
-    SUPABASE_KEY: str  # DESDE .ENV - Clave de API de Supabase (anon key)
-    SUPABASE_SERVICE_ROLE_KEY: (
-        str  # DESDE .ENV - Service role key (sin restricciones RLS)
+    SUPABASE_URL: Optional[str] = None  # DESDE .ENV - URL de Supabase
+    SUPABASE_KEY: Optional[str] = None  # DESDE .ENV - Clave de API de Supabase (anon key)
+    SUPABASE_SERVICE_ROLE_KEY: Optional[str] = (
+        None  # DESDE .ENV - Service role key (sin restricciones RLS)
     )
     ENV: str = "local"  # local, development o production
 
@@ -48,6 +48,18 @@ class Settings(BaseSettings):
     DOCUMENTAI_PROJECT_ID: Optional[str] = None
     DOCUMENTAI_LOCATION: Optional[str] = None
     DOCUMENTAI_PROCESSOR_ID: Optional[str] = None
+
+    # === CONFIGURACIÓN DE EMAIL (FASTAPI-MAIL) ===
+    MAIL_USERNAME: Optional[str] = None  # DESDE .ENV - Email de Gmail
+    MAIL_PASSWORD: Optional[str] = (
+        None  # DESDE .ENV - Contraseña de Gmail o App Password
+    )
+    MAIL_FROM: Optional[str] = None  # DESDE .ENV - Email desde el cual enviar
+    MAIL_PORT: int = 587  # Puerto SMTP para Gmail
+    MAIL_SERVER: str = "smtp.gmail.com"  # Servidor SMTP de Gmail
+    MAIL_STARTTLS: bool = True  # Usar STARTTLS para conexión segura
+    MAIL_SSL_TLS: bool = False  # No usar SSL directo (usa STARTTLS)
+    MAIL_USE_CREDENTIALS: bool = True  # Usar credenciales para autenticación
 
     @property
     def is_production(self) -> bool:

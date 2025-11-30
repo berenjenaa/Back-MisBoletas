@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from app.db.supabase import supabase
 
+
 # =======================================================================
 # === MODELOS AUXILIARES
 # =======================================================================
@@ -46,10 +47,11 @@ async def get_current_user(
     Lógica:
     1. Extrae el token del header Authorization (Bearer token)
     2. Lo valida con supabase.auth.get_user(token)
-    3. Devuelve los datos del usuario autenticado
+    3. Verifica que la cuenta no esté bloqueada
+    4. Devuelve los datos del usuario autenticado
 
     Raises:
-        HTTPException: Si el token es inválido o expiró
+        HTTPException: Si el token es inválido, expiró, o la cuenta está bloqueada
     """
     token = credentials.credentials
 
@@ -68,11 +70,41 @@ async def get_current_user(
 
         # Extraer datos del usuario
         auth_user = user.user
-        return CurrentUser(id=auth_user.id, email=auth_user.email or "")
+        user_id = auth_user.id
+        email = auth_user.email or ""
 
+        # Verificar que el usuario no está bloqueado
+        try:
+            perfil_response = (
+                supabase.table("perfiles")
+                .select("cuenta_bloqueada, motivo_bloqueo, bloqueo_hasta")
+                .eq("id_usuario", user_id)
+                .single()
+                .execute()
+            )
+
+            if perfil_response.data:
+                perfil = perfil_response.data
+                if perfil.get("cuenta_bloqueada"):
+                    motivo = perfil.get("motivo_bloqueo", "Cuenta bloqueada")
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"Cuenta bloqueada: {motivo}",
+                    )
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"[WARNING] Error checking account status: {e}")
+            # No lanzar excepción aquí, solo advertir. El usuario es válido en Supabase.
+
+        return CurrentUser(id=user_id, email=email)
+
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[ERROR] Error validating token: {e}")
         raise credentials_exception
+
 
 
 # =======================================================================
