@@ -12,63 +12,69 @@ def create_tables():
     """
     Función que crea todas las tablas de SQLAlchemy en la base de datos de PostgreSQL.
     Se ejecuta al iniciar el servidor (on_startup).
+    Si hay error de conexión, la app igualmente inicia (pero sin tablas).
     """
     print("🔄 Intentando crear tablas en la base de datos...")
 
-    # Importar TODOS los modelos para que Base.metadata los conozca
-    from app.models import Usuario, Categoria, ProductoCategoria, Producto, Documento
-    
-    inspector = inspect(engine)
-    
-    # 1. Verificar y recrear tabla documentos si tiene estructura incorrecta
     try:
-        if inspector.has_table("documentos"):
-            with engine.connect() as conn:
-                result = conn.execute(text("""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name = 'documentos' AND column_name = 'url_gcs'
-                """))
-                
-                if not result.fetchone():
-                    print("⚠️  Tabla documentos tiene estructura incorrecta. Recreando...")
-                    conn.execute(text("DROP TABLE IF EXISTS documentos CASCADE;"))
-                    conn.commit()
-                    print("✅ Tabla documentos eliminada")
-    except Exception as e:
-        print(f"⚠️  Error al verificar tabla documentos: {e}")
-    
-    # 2. Verificar y recrear tablas de categorías si tienen estructura incorrecta
-    try:
-        # Verificar si existe tabla categorias con la columna 'color'
-        if inspector.has_table("categorias"):
-            with engine.connect() as conn:
-                result = conn.execute(text("""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name = 'categorias' AND column_name = 'color'
-                """))
-                
-                if not result.fetchone():
-                    print("⚠️  Tabla categorias tiene estructura antigua. Recreando...")
-                    conn.execute(text("DROP TABLE IF EXISTS productocategorias CASCADE;"))
-                    conn.execute(text("DROP TABLE IF EXISTS categorias CASCADE;"))
-                    conn.commit()
-                    print("✅ Tablas de categorías eliminadas")
-    except Exception as e:
-        print(f"⚠️  Error al verificar tablas de categorías: {e}")
-    
-    # 3. Crear todas las tablas definidas en los modelos
-    Base.metadata.create_all(bind=engine)
-    print("✅ Tablas creadas exitosamente o ya existentes.")
-    
-    # 4. Mostrar tablas existentes
-    try:
+        # Importar TODOS los modelos para que Base.metadata los conozca
+        from app.models import Usuario, Categoria, ProductoCategoria, Producto, Documento
+        
         inspector = inspect(engine)
-        tables = inspector.get_table_names()
-        print(f"📊 Tablas en la base de datos: {', '.join(tables)}")
+        
+        # 1. Verificar y recrear tabla documentos si tiene estructura incorrecta
+        try:
+            if inspector.has_table("documentos"):
+                with engine.connect() as conn:
+                    result = conn.execute(text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name = 'documentos' AND column_name = 'url_gcs'
+                    """))
+                    
+                    if not result.fetchone():
+                        print("⚠️  Tabla documentos tiene estructura incorrecta. Recreando...")
+                        conn.execute(text("DROP TABLE IF EXISTS documentos CASCADE;"))
+                        conn.commit()
+                        print("✅ Tabla documentos eliminada")
+        except Exception as e:
+            print(f"⚠️  Error al verificar tabla documentos: {e}")
+        
+        # 2. Verificar y recrear tablas de categorías si tienen estructura incorrecta
+        try:
+            # Verificar si existe tabla categorias con la columna 'color'
+            if inspector.has_table("categorias"):
+                with engine.connect() as conn:
+                    result = conn.execute(text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name = 'categorias' AND column_name = 'color'
+                    """))
+                    
+                    if not result.fetchone():
+                        print("⚠️  Tabla categorias tiene estructura antigua. Recreando...")
+                        conn.execute(text("DROP TABLE IF EXISTS productocategorias CASCADE;"))
+                        conn.execute(text("DROP TABLE IF EXISTS categorias CASCADE;"))
+                        conn.commit()
+                        print("✅ Tablas de categorías eliminadas")
+        except Exception as e:
+            print(f"⚠️  Error al verificar tablas de categorías: {e}")
+        
+        # 3. Crear todas las tablas definidas en los modelos
+        Base.metadata.create_all(bind=engine)
+        print("✅ Tablas creadas exitosamente o ya existentes.")
+        
+        # 4. Mostrar tablas existentes
+        try:
+            inspector = inspect(engine)
+            tables = inspector.get_table_names()
+            print(f"📊 Tablas en la base de datos: {', '.join(tables)}")
+        except Exception as e:
+            print(f"⚠️  No se pudieron listar las tablas: {e}")
+    
     except Exception as e:
-        print(f"⚠️  No se pudieron listar las tablas: {e}")
+        print(f"❌ Error al crear tablas: {e}")
+        print("⚠️  La aplicación continuará ejecutándose sin tablas inicializadas.")
 
 # Crear aplicación FastAPI
 app = FastAPI(

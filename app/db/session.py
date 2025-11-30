@@ -4,15 +4,24 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 from typing import Generator
 
-# Usamos directamente la DATABASE_URL que es leída desde Render
+# Usamos directamente la DATABASE_URL que es leída desde el .env
 SQLALCHEMY_DATABASE_URL = settings.SQLALCHEMY_DATABASE_URL
 
-# Crear el motor de SQLAlchemy con SSL
+# Configuración de conexión para Supabase (requiere SSL)
+connect_args = {
+    "sslmode": "require",  # Obligatorio para Supabase
+    "connect_timeout": 10,
+}
+
+# Crear el motor de SQLAlchemy
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
     pool_pre_ping=True,
-    echo=True,
-    connect_args={"sslmode": "require"}  # 🔹 obligatorio para conexiones externas en Render
+    echo=False,  # Cambiar a True para debug
+    connect_args=connect_args,
+    pool_size=5,
+    max_overflow=10,
+    pool_recycle=3600,  # Reciclar conexiones cada hora
 )
 
 # Crear la sesión
