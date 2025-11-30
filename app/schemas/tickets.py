@@ -30,4 +30,4 @@ class TicketCreate(BaseModel):
 
     asunto: str = Field(..., min_length=1, max_length=255)
     mensaje: str = Field(..., min_length=1, max_length=5000)
-    prioridad: Optional[str] = Field("media", regex="^(baja|media|alta)$")
+    prioridad: Optional[str] = Field("media", pattern="^(baja|media|alta)$")
