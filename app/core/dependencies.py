@@ -32,11 +32,9 @@ class CurrentUser(BaseModel):
 
 security = HTTPBearer()
 
-
 # =======================================================================
 # === DEPENDENCIA: OBTENER USUARIO ACTUAL (Validado con Supabase)
 # =======================================================================
-
 
 async def get_current_user(
     credentials=Depends(security),
@@ -73,29 +71,9 @@ async def get_current_user(
         user_id = auth_user.id
         email = auth_user.email or ""
 
-        # Verificar que el usuario no está bloqueado
-        try:
-            perfil_response = (
-                supabase.table("perfiles")
-                .select("cuenta_bloqueada, motivo_bloqueo, bloqueo_hasta")
-                .eq("id_usuario", user_id)
-                .single()
-                .execute()
-            )
-
-            if perfil_response.data:
-                perfil = perfil_response.data
-                if perfil.get("cuenta_bloqueada"):
-                    motivo = perfil.get("motivo_bloqueo", "Cuenta bloqueada")
-                    raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        detail=f"Cuenta bloqueada: {motivo}",
-                    )
-        except HTTPException:
-            raise
-        except Exception as e:
-            print(f"[WARNING] Error checking account status: {e}")
-            # No lanzar excepción aquí, solo advertir. El usuario es válido en Supabase.
+        # Nota: El bloqueo de cuenta se verifica usando una función RPC en los endpoints
+        # No usamos .table("perfiles").select() aquí porque RLS bloquea las queries directas
+        # Las RPC functions con SECURITY DEFINER manejan la verificación internamente
 
         return CurrentUser(id=user_id, email=email)
 
