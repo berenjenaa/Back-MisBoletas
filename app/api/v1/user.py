@@ -79,15 +79,31 @@ async def register(data: UserRegisterRequest):
 
         # Crear perfil en tabla perfiles
         try:
-            supabase.table("perfiles").insert(
-                {
-                    "id_usuario": str(user_id),
-                    "email": data.correo,
-                    "nombre_completo": data.nombre or data.correo.split("@")[0],
-                }
-            ).execute()
+            profile_response = (
+                supabase.table("perfiles")
+                .insert(
+                    {
+                        "id_usuario": str(user_id),
+                        "email": data.correo,
+                        "nombre_completo": data.nombre or data.correo.split("@")[0],
+                    }
+                )
+                .execute()
+            )
+
+            if not profile_response.data:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Error creating user profile",
+                )
+        except HTTPException:
+            raise
         except Exception as e:
-            logger.warning(f"[WARNING] Could not create profile: {e}")
+            logger.error(f"[ERROR] Failed to create profile: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Profile creation failed: {str(e)}",
+            )
 
         logger.info(f"[OK] User registered: {data.correo}")
 
@@ -139,29 +155,9 @@ async def login(data: UserLoginRequest):
 
         logger.info(f"[OK] User logged in: {data.correo}")
 
-        # Obtener datos del perfil del usuario
-        try:
-            profile = (
-                supabase.table("perfiles")
-                .select("*")
-                .eq("id_usuario", str(user_id))
-                .single()
-                .execute()
-            )
-            nombre_completo = (
-                profile.data.get("nombre_completo", data.correo.split("@")[0])
-                if profile.data
-                else data.correo.split("@")[0]
-            )
-            fecha_registro = (
-                profile.data.get("fecha_registro", datetime.now().isoformat())
-                if profile.data
-                else datetime.now().isoformat()
-            )
-        except Exception as e:
-            logger.warning(f"[WARNING] Could not fetch profile: {e}")
-            nombre_completo = data.correo.split("@")[0]
-            fecha_registro = datetime.now().isoformat()
+        # Nota: No consultamos table("perfiles") aquí porque RLS lo bloquea
+        # El usuario será autenticado en cada request via JWT
+        # Los datos del perfil se obtienen en endpoints específicos si es necesario
 
         return {
             "access_token": res.session.access_token,
@@ -169,8 +165,8 @@ async def login(data: UserLoginRequest):
             "user": {
                 "id_usuario": str(user_id),
                 "email": data.correo,
-                "nombre_completo": nombre_completo,
-                "fecha_registro": fecha_registro,
+                "nombre_completo": data.correo.split("@")[0],
+                "fecha_registro": datetime.now().isoformat(),
             },
         }
 
