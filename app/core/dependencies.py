@@ -63,7 +63,7 @@ async def get_current_user(
 
     try:
         # Validar token con Supabase
-        user = supabase.client.auth.get_user(token)
+        user = supabase.auth.get_user(token)
 
         if not user or not user.user:
             raise credentials_exception
