@@ -4,7 +4,7 @@ from uuid import UUID
 import logging
 
 from app.core.dependencies import get_current_user_id, get_active_user_id
-from app.core.config import supabase
+from app.db.supabase import supabase_admin
 from app.schemas.categorias import (
     CategoriaBase,
     CategoriaCreate,

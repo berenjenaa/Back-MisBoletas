@@ -8,8 +8,13 @@ import logging
 from datetime import datetime
 
 from app.schemas.tickets import TicketRead, TicketCreate
-from app.core.config import supabase, settings
-from app.core.dependencies import get_current_user_id, get_current_user, get_active_user_id
+from app.db.supabase import supabase_admin
+from app.core.config import settings
+from app.core.dependencies import (
+    get_current_user_id,
+    get_current_user,
+    get_active_user_id,
+)
 from app.core.email_config import fast_mail
 from app.core.dependencies import CurrentUser
 

@@ -5,7 +5,7 @@ from uuid import UUID
 from datetime import datetime
 import logging
 
-from app.core.config import supabase
+from app.db.supabase import supabase_admin
 from app.core.dependencies import get_current_user_id, get_active_user_id
 
 logger = logging.getLogger(__name__)
@@ -174,7 +174,7 @@ async def read_users_me(user_id: UUID = Depends(get_active_user_id)):
     try:
         # Consultar tabla 'profiles' en Supabase usando el user_id
         response = (
-            supabase.table("profiles")
+            supabase_admin.get_table("profiles")
             .select("*")
             .eq("id", str(user_id))
             .single()
@@ -194,7 +194,8 @@ async def read_users_me(user_id: UUID = Depends(get_active_user_id)):
     except Exception as e:
         logger.error(f"[ERROR] Error reading profile: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error al obtener el perfil. Por favor intenta más tarde."
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al obtener el perfil. Por favor intenta más tarde.",
         )
 
 
@@ -229,7 +230,7 @@ async def update_my_profile(
 
         # Actualizar en Supabase
         response = (
-            supabase.table("profiles")
+            supabase_admin.get_table("profiles")
             .update(update_data)
             .eq("id", str(user_id))
             .execute()
@@ -248,7 +249,8 @@ async def update_my_profile(
     except Exception as e:
         logger.error(f"[ERROR] Error updating profile: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error al actualizar el perfil. Por favor intenta más tarde."
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al actualizar el perfil. Por favor intenta más tarde.",
         )
 
 
@@ -268,7 +270,7 @@ async def delete_my_account(
     """
     try:
         # Eliminar perfil de Supabase
-        supabase.table("profiles").delete().eq("id", str(user_id)).execute()
+        supabase_admin.get_table("profiles").delete().eq("id", str(user_id)).execute()
 
         logger.info(f"[OK] User {user_id} account deleted")
         return None
@@ -276,7 +278,8 @@ async def delete_my_account(
     except Exception as e:
         logger.error(f"[ERROR] Error deleting account: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error al eliminar la cuenta. Por favor intenta más tarde."
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al eliminar la cuenta. Por favor intenta más tarde.",
         )
 
 

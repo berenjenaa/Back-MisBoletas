@@ -10,7 +10,7 @@ from app.schemas.documento import (
     DocumentoListItem,
     SignedUrlResponse,
 )
-from app.core.config import supabase
+from app.db.supabase import supabase_admin
 from app.core.dependencies import get_current_user_id, get_active_user_id
 from app.services.gcs_service import get_gcs_service
 from app.services.ocr_service import process_boleta_from_gcs_uri
@@ -63,7 +63,7 @@ async def upload_documento(
         # 1. Verificar que el producto pertenece al usuario
         try:
             prod_response = (
-                supabase.table("productos")
+                supabase_admin.get_table("productos")
                 .select("id")
                 .eq("id", str(producto_id))
                 .eq("user_id", str(user_id))
@@ -97,7 +97,7 @@ async def upload_documento(
             "size_bytes": upload_result.get("size_bytes", 0),
         }
 
-        response = supabase.table("documentos").insert(insert_data).execute()
+        response = supabase_admin.get_table("documentos").insert(insert_data).execute()
 
         if not response.data:
             # Rollback: eliminar de GCS si falla inserción en Supabase
@@ -131,7 +131,7 @@ async def upload_documento(
                 )
 
                 # Guardar resultado OCR en Supabase
-                supabase.table("documentos").update(
+                supabase_admin.get_table("documentos").update(
                     {"metadata_ocr": json.dumps(ocr_result)}
                 ).eq("id", str(documento["id"])).execute()
 
@@ -258,7 +258,7 @@ async def get_signed_url(
     try:
         # 1. Obtener documento (verifica ownership)
         doc_response = (
-            supabase.table("documentos")
+            supabase_admin.get_table("documentos")
             .select("url_gcs, blob_name")
             .eq("id", str(documento_id))
             .single()
@@ -329,7 +329,7 @@ async def delete_documento(
     try:
         # 1. Obtener documento de Supabase
         doc_response = (
-            supabase.table("documentos")
+            supabase_admin.get_table("documentos")
             .select("blob_name, url_gcs")
             .eq("id", str(documento_id))
             .single()
@@ -356,7 +356,7 @@ async def delete_documento(
                 logger.warning(f"[WARNING] GCS deletion failed: {e}")
 
         # 3. Eliminar de Supabase
-        supabase.table("documentos").delete().eq("id", str(documento_id)).execute()
+        supabase_admin.get_table("documentos").delete().eq("id", str(documento_id)).execute()
 
         return None
 

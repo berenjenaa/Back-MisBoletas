@@ -36,6 +36,7 @@ security = HTTPBearer()
 # === DEPENDENCIA: OBTENER USUARIO ACTUAL (Validado con Supabase)
 # =======================================================================
 
+
 async def get_current_user(
     credentials=Depends(security),
 ) -> CurrentUser:
@@ -127,7 +128,7 @@ async def get_active_user_id(
 ) -> str:
     """
     Dependencia que valida que el usuario NO esté bloqueado.
-    
+
     Uso en endpoints de negocio (crear, actualizar, eliminar):
         @app.post("/productos")
         async def create_product(
@@ -152,9 +153,9 @@ async def get_active_user_id(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Tu cuenta está bloqueada: {motivo}",
             )
-        
+
         return current_user.id
-    
+
     except HTTPException:
         raise
     except Exception as e:

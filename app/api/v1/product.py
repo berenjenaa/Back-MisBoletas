@@ -6,7 +6,7 @@ from uuid import UUID
 import logging
 
 from app.schemas.product import ProductRead, ProductCreate, ProductUpdate
-from app.core.config import supabase
+from app.db.supabase import supabase_admin
 from app.core.dependencies import get_current_user_id, get_active_user_id
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ async def get_products(
     """Obtiene todos los productos del usuario autenticado (sin eliminados)."""
     try:
         response = (
-            supabase.table("productos")
+            supabase_admin.get_table("productos")
             .select("*")
             .eq("id_usuario", str(user_id))
             .is_("fecha_eliminacion", "null")
@@ -47,7 +47,7 @@ async def get_product(
     """Obtiene un producto específico por ID."""
     try:
         response = (
-            supabase.table("productos")
+            supabase_admin.get_table("productos")
             .select("*")
             .eq("id_producto", str(product_id))
             .eq("id_usuario", str(user_id))
@@ -95,7 +95,7 @@ async def create_product(
             "precio": int(product_data.precio) if product_data.precio else None,
         }
 
-        response = supabase.table("productos").insert(payload).execute()
+        response = supabase_admin.get_table("productos").insert(payload).execute()
 
         if not response.data:
             raise HTTPException(
@@ -137,7 +137,7 @@ async def update_product(
         }
 
         response = (
-            supabase.table("productos")
+            supabase_admin.get_table("productos")
             .update(payload)
             .eq("id_producto", str(product_id))
             .eq("id_usuario", str(user_id))
@@ -173,7 +173,7 @@ async def delete_product(
         from datetime import datetime
 
         response = (
-            supabase.table("productos")
+            supabase_admin.get_table("productos")
             .update({"fecha_eliminacion": datetime.now().isoformat()})
             .eq("id_producto", str(product_id))
             .eq("id_usuario", str(user_id))
