@@ -11,7 +11,7 @@ from app.schemas.documento import (
     SignedUrlResponse,
 )
 from app.core.config import supabase
-from app.core.dependencies import get_current_user_id
+from app.core.dependencies import get_current_user_id, get_active_user_id
 from app.services.gcs_service import get_gcs_service
 from app.services.ocr_service import process_boleta_from_gcs_uri
 from app.core.config import settings
@@ -35,7 +35,7 @@ router = APIRouter(prefix="/documentos", tags=["documentos"])
 async def upload_documento(
     producto_id: UUID,
     file: UploadFile = File(...),
-    user_id: UUID = Depends(get_current_user_id),
+    user_id: UUID = Depends(get_active_user_id),
 ):
     """
     Sube un documento a GCS y guarda la referencia en Supabase.
@@ -156,7 +156,7 @@ async def upload_documento(
         logger.error(f"[ERROR] Error uploading document: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error procesando documento",
+            detail="Error procesando documento. Por favor intenta más tarde.",
         )
 
 
@@ -167,33 +167,17 @@ async def upload_documento(
 )
 async def get_documentos_by_producto(
     producto_id: UUID,
-    user_id: UUID = Depends(get_current_user_id),
+    user_id: UUID = Depends(get_active_user_id),
 ):
     """Obtiene todos los documentos de un producto del usuario."""
     try:
-        # Verificar ownership del producto
-        prod_response = (
-            supabase.table("productos")
-            .select("id")
-            .eq("id", str(producto_id))
-            .eq("user_id", str(user_id))
-            .execute()
-        )
+        # Cambio: Usar RPC en lugar de verificación + select
+        response = supabase.rpc(
+            "api_obtener_documentos_producto",
+            {"p_id_producto": str(producto_id), "p_id_usuario": str(user_id)},
+        ).execute()
 
-        if not prod_response.data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado"
-            )
-
-        # Obtener documentos
-        docs_response = (
-            supabase.table("documentos")
-            .select("*")
-            .eq("producto_id", str(producto_id))
-            .execute()
-        )
-
-        documentos = docs_response.data or []
+        documentos = response.data or []
         return [DocumentoListItem(**d) for d in documentos]
 
     except HTTPException:
@@ -202,7 +186,7 @@ async def get_documentos_by_producto(
         logger.error(f"[ERROR] Failed to read documents: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error obteniendo documentos",
+            detail="Error obteniendo documentos. Por favor intenta más tarde.",
         )
 
 
@@ -213,24 +197,22 @@ async def get_documentos_by_producto(
 )
 async def get_documento(
     documento_id: UUID,
-    user_id: UUID = Depends(get_current_user_id),
+    user_id: UUID = Depends(get_active_user_id),
 ):
     """Obtiene un documento específico por ID."""
     try:
-        response = (
-            supabase.table("documentos")
-            .select("*")
-            .eq("id", str(documento_id))
-            .single()
-            .execute()
-        )
+        # Cambio: Usar RPC en lugar de select directo
+        response = supabase.rpc(
+            "api_obtener_documento",
+            {"p_id_documento": str(documento_id), "p_id_usuario": str(user_id)},
+        ).execute()
 
-        documento = response.data
-        if not documento:
+        if not response.data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Documento no encontrado"
             )
 
+        documento = response.data[0]
         return DocumentoRead(**documento)
 
     except HTTPException:
@@ -238,7 +220,8 @@ async def get_documento(
     except Exception as e:
         logger.error(f"[ERROR] Failed to read document: {e}")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Documento no encontrado"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error obteniendo documento. Por favor intenta más tarde.",
         )
 
 
@@ -250,7 +233,7 @@ async def get_documento(
 async def get_signed_url(
     documento_id: UUID,
     expiration_seconds: int = 3600,
-    user_id: UUID = Depends(get_current_user_id),
+    user_id: UUID = Depends(get_active_user_id),
 ):
     """
     Genera una URL firmada temporal para acceder a un documento privado en GCS.
@@ -316,7 +299,7 @@ async def get_signed_url(
         logger.error(f"[ERROR] Failed to generate signed URL: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error generando URL",
+            detail="Error generando URL. Por favor intenta más tarde.",
         )
 
 
@@ -327,7 +310,7 @@ async def get_signed_url(
 )
 async def delete_documento(
     documento_id: UUID,
-    user_id: UUID = Depends(get_current_user_id),
+    user_id: UUID = Depends(get_active_user_id),
 ):
     """Elimina un documento de Supabase y GCS."""
     if not settings.gcs_enabled:
@@ -383,5 +366,5 @@ async def delete_documento(
         logger.error(f"[ERROR] Failed to delete document: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error eliminando documento",
+            detail="Error eliminando documento. Por favor intenta más tarde.",
         )

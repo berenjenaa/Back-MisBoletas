@@ -63,7 +63,7 @@ async def get_current_user(
 
     try:
         # Validar token con Supabase
-        user = supabase.client.auth.get_user(token)
+        user = supabase.auth.get_user(token)
 
         if not user or not user.user:
             raise credentials_exception
@@ -137,3 +137,49 @@ async def get_current_user_email(
     Dependencia para obtener solo el email del usuario autenticado.
     """
     return current_user.email
+
+
+# =======================================================================
+# === DEPENDENCIA: OBTENER ID DEL USUARIO ACTIVO (No bloqueado)
+# =======================================================================
+
+
+async def get_active_user_id(
+    current_user: CurrentUser = Depends(get_current_user),
+) -> str:
+    """
+    Dependencia que valida que el usuario NO esté bloqueado.
+    
+    Uso en endpoints de negocio (crear, actualizar, eliminar):
+        @app.post("/productos")
+        async def create_product(
+            data: ProductCreate,
+            user_id: str = Depends(get_active_user_id),
+        ):
+            ...
+    """
+    try:
+        # Verificar que la cuenta no está bloqueada
+        perfil_response = (
+            supabase.table("perfiles")
+            .select("cuenta_bloqueada, motivo_bloqueo")
+            .eq("id_usuario", current_user.id)
+            .single()
+            .execute()
+        )
+
+        if perfil_response.data and perfil_response.data.get("cuenta_bloqueada"):
+            motivo = perfil_response.data.get("motivo_bloqueo", "Cuenta bloqueada")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Tu cuenta está bloqueada: {motivo}",
+            )
+        
+        return current_user.id
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Si hay error consultando perfil, permitir pero loguear
+        print(f"[WARNING] Error checking account status: {e}")
+        return current_user.id

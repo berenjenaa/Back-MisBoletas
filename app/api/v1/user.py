@@ -6,7 +6,7 @@ from datetime import datetime
 import logging
 
 from app.core.config import supabase
-from app.core.dependencies import get_current_user_id
+from app.core.dependencies import get_current_user_id, get_active_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -60,11 +60,14 @@ async def register(data: UserRegisterRequest):
     Registra un nuevo usuario en Supabase Auth.
 
     - Crea una cuenta en Supabase Auth
-    - Inserta un perfil en la tabla 'profiles'
+    - El trigger on_auth_user_created automáticamente:
+      * Crea el perfil en la tabla 'perfiles'
+      * Crea categorías predefinidas
     - Retorna access_token para usar en otros endpoints
     """
     try:
         # Registrar en Supabase Auth
+        # El trigger on_auth_user_created se ejecutará automáticamente
         res = supabase.auth.sign_up({"email": data.correo, "password": data.contrasena})
 
         if not res.user:
@@ -76,20 +79,7 @@ async def register(data: UserRegisterRequest):
             )
 
         user_id = UUID(res.user.id)
-
-        # Crear perfil en tabla perfiles
-        try:
-            supabase.table("perfiles").insert(
-                {
-                    "id_usuario": str(user_id),
-                    "email": data.correo,
-                    "nombre_completo": data.nombre or data.correo.split("@")[0],
-                }
-            ).execute()
-        except Exception as e:
-            logger.warning(f"[WARNING] Could not create profile: {e}")
-
-        logger.info(f"[OK] User registered: {data.correo}")
+        logger.info(f"[OK] User registered: {data.correo} (ID: {user_id})")
 
         return {
             "access_token": res.session.access_token if res.session else "",
@@ -108,7 +98,7 @@ async def register(data: UserRegisterRequest):
         logger.error(f"[ERROR] Registration failed: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Registration failed: {str(e)}",
+            detail="Error al registrarse. Por favor intenta más tarde.",
         )
 
 
@@ -139,29 +129,9 @@ async def login(data: UserLoginRequest):
 
         logger.info(f"[OK] User logged in: {data.correo}")
 
-        # Obtener datos del perfil del usuario
-        try:
-            profile = (
-                supabase.table("perfiles")
-                .select("*")
-                .eq("id_usuario", str(user_id))
-                .single()
-                .execute()
-            )
-            nombre_completo = (
-                profile.data.get("nombre_completo", data.correo.split("@")[0])
-                if profile.data
-                else data.correo.split("@")[0]
-            )
-            fecha_registro = (
-                profile.data.get("fecha_registro", datetime.now().isoformat())
-                if profile.data
-                else datetime.now().isoformat()
-            )
-        except Exception as e:
-            logger.warning(f"[WARNING] Could not fetch profile: {e}")
-            nombre_completo = data.correo.split("@")[0]
-            fecha_registro = datetime.now().isoformat()
+        # Nota: No consultamos table("perfiles") aquí porque RLS lo bloquea
+        # El usuario será autenticado en cada request via JWT
+        # Los datos del perfil se obtienen en endpoints específicos si es necesario
 
         return {
             "access_token": res.session.access_token,
@@ -169,8 +139,8 @@ async def login(data: UserLoginRequest):
             "user": {
                 "id_usuario": str(user_id),
                 "email": data.correo,
-                "nombre_completo": nombre_completo,
-                "fecha_registro": fecha_registro,
+                "nombre_completo": data.correo.split("@")[0],
+                "fecha_registro": datetime.now().isoformat(),
             },
         }
 
@@ -179,7 +149,7 @@ async def login(data: UserLoginRequest):
     except Exception as e:
         logger.error(f"[ERROR] Login failed: {e}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas."
         )
 
 
@@ -193,7 +163,7 @@ async def login(data: UserLoginRequest):
     response_model=UserProfileResponse,
     summary="Obtener mi perfil de usuario",
 )
-async def read_users_me(user_id: UUID = Depends(get_current_user_id)):
+async def read_users_me(user_id: UUID = Depends(get_active_user_id)):
     """
     Devuelve los datos del usuario autenticado desde Supabase.
 
@@ -224,7 +194,7 @@ async def read_users_me(user_id: UUID = Depends(get_current_user_id)):
     except Exception as e:
         logger.error(f"[ERROR] Error reading profile: {e}")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error al obtener el perfil. Por favor intenta más tarde."
         )
 
 
@@ -235,7 +205,7 @@ async def read_users_me(user_id: UUID = Depends(get_current_user_id)):
 )
 async def update_my_profile(
     data: UserUpdateRequest,
-    user_id: UUID = Depends(get_current_user_id),
+    user_id: UUID = Depends(get_active_user_id),
 ):
     """
     Actualiza el perfil del usuario en Supabase.
@@ -278,7 +248,7 @@ async def update_my_profile(
     except Exception as e:
         logger.error(f"[ERROR] Error updating profile: {e}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Error updating profile"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error al actualizar el perfil. Por favor intenta más tarde."
         )
 
 
@@ -288,7 +258,7 @@ async def update_my_profile(
     summary="Eliminar mi cuenta",
 )
 async def delete_my_account(
-    user_id: UUID = Depends(get_current_user_id),
+    user_id: UUID = Depends(get_active_user_id),
 ):
     """
     Elimina la cuenta del usuario actual.
@@ -306,7 +276,7 @@ async def delete_my_account(
     except Exception as e:
         logger.error(f"[ERROR] Error deleting account: {e}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Error deleting account"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error al eliminar la cuenta. Por favor intenta más tarde."
         )
 
 

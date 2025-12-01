@@ -9,7 +9,7 @@ from datetime import datetime
 
 from app.schemas.tickets import TicketRead, TicketCreate
 from app.core.config import supabase, settings
-from app.core.dependencies import get_current_user_id, get_current_user
+from app.core.dependencies import get_current_user_id, get_current_user, get_active_user_id
 from app.core.email_config import fast_mail
 from app.core.dependencies import CurrentUser
 
@@ -44,17 +44,17 @@ async def create_ticket(
         user_id = current_user.id
         email_usuario = current_user.email
 
-        # Preparar datos para insertar
-        insert_data = {
-            "id_usuario": str(user_id),
-            "asunto": ticket_data.asunto,
-            "mensaje": ticket_data.mensaje,
-            "prioridad": ticket_data.prioridad or "media",
-            "estado": "abierto",  # Estado inicial
-        }
-
-        # 1. Insertar ticket en Supabase
-        response = supabase.table("tickets_soporte").insert(insert_data).execute()
+        # 1. Insertar ticket en Supabase usando RPC
+        # Cambio: Usar RPC en lugar de insert directo
+        response = supabase.rpc(
+            "api_crear_ticket",
+            {
+                "p_id_usuario": str(user_id),
+                "p_asunto": ticket_data.asunto,
+                "p_descripcion": ticket_data.mensaje,
+                "p_prioridad": ticket_data.prioridad or "media",
+            },
+        ).execute()
 
         if not response.data:
             raise HTTPException(
@@ -123,7 +123,9 @@ async def create_ticket(
                 # Crear objeto de mensaje
                 message = MessageSchema(
                     subject=asunto_email,
-                    recipients=[settings.MAIL_FROM],  # Enviar a la dirección configurada
+                    recipients=[
+                        settings.MAIL_FROM
+                    ],  # Enviar a la dirección configurada
                     body=mensaje_html,
                     subtype=MessageType.html,
                 )
@@ -132,7 +134,9 @@ async def create_ticket(
                 await fast_mail.send_message(message)
                 logger.info(f"[INFO] Email sent for ticket {ticket['id_ticket']}")
             else:
-                logger.warning(f"[WARNING] Email not configured - skipping notification for ticket {ticket['id_ticket']}")
+                logger.warning(
+                    f"[WARNING] Email not configured - skipping notification for ticket {ticket['id_ticket']}"
+                )
         except Exception as e:
             logger.warning(f"[WARNING] Failed to send email for ticket: {e}")
             # No lanzar excepción aquí, el ticket fue creado exitosamente
@@ -145,13 +149,13 @@ async def create_ticket(
         logger.error(f"[ERROR] Failed to create ticket: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al crear el ticket",
+            detail="Error al crear el ticket. Por favor intenta más tarde.",
         )
 
 
 @router.get("", response_model=List[TicketRead], summary="Listar mis tickets")
 async def get_tickets(
-    user_id: UUID = Depends(get_current_user_id),
+    user_id: UUID = Depends(get_active_user_id),
 ):
     """
     Obtiene todos los tickets de soporte del usuario autenticado.
@@ -160,13 +164,10 @@ async def get_tickets(
     Los tickets se ordenan por fecha de creación (más recientes primero).
     """
     try:
-        response = (
-            supabase.table("tickets_soporte")
-            .select("*")
-            .eq("id_usuario", str(user_id))
-            .order("fecha_creacion", desc=True)  # Más recientes primero
-            .execute()
-        )
+        # Cambio: Usar RPC en lugar de select directo
+        response = supabase.rpc(
+            "api_listar_tickets", {"p_id_usuario": str(user_id)}
+        ).execute()
 
         tickets = response.data or []
         return [TicketRead(**t) for t in tickets]
@@ -175,7 +176,7 @@ async def get_tickets(
         logger.error(f"[ERROR] Failed to list tickets: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener tickets",
+            detail="Error al obtener tickets. Por favor intenta más tarde.",
         )
 
 
@@ -184,33 +185,32 @@ async def get_tickets(
 )
 async def get_ticket(
     ticket_id: UUID,
-    user_id: UUID = Depends(get_current_user_id),
+    user_id: UUID = Depends(get_active_user_id),
 ):
     """
     Obtiene un ticket específico por ID (con verificación de ownership).
     """
     try:
-        response = (
-            supabase.table("tickets_soporte")
-            .select("*")
-            .eq("id_ticket", str(ticket_id))
-            .eq("id_usuario", str(user_id))
-            .single()
-            .execute()
-        )
+        # Cambio: Usar RPC en lugar de select directo
+        response = supabase.rpc(
+            "api_obtener_ticket",
+            {"p_id_ticket": str(ticket_id), "p_id_usuario": str(user_id)},
+        ).execute()
 
-        ticket = response.data
-        if not ticket:
+        if not response.data:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Ticket no encontrado"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Ticket no encontrado",
             )
 
+        ticket = response.data[0]
         return TicketRead(**ticket)
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[ERROR] Failed to read ticket: {e}")
+        logger.error(f"[ERROR] Failed to get ticket: {e}")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Ticket no encontrado"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al obtener el ticket. Por favor intenta más tarde.",
         )
