@@ -44,17 +44,17 @@ async def create_ticket(
         user_id = current_user.id
         email_usuario = current_user.email
 
-        # Preparar datos para insertar
-        insert_data = {
-            "id_usuario": str(user_id),
-            "asunto": ticket_data.asunto,
-            "mensaje": ticket_data.mensaje,
-            "prioridad": ticket_data.prioridad or "media",
-            "estado": "abierto",  # Estado inicial
-        }
-
-        # 1. Insertar ticket en Supabase
-        response = supabase.table("tickets_soporte").insert(insert_data).execute()
+        # 1. Insertar ticket en Supabase usando RPC
+        # Cambio: Usar RPC en lugar de insert directo
+        response = supabase.rpc(
+            'api_crear_ticket',
+            {
+                'p_id_usuario': str(user_id),
+                'p_asunto': ticket_data.asunto,
+                'p_mensaje': ticket_data.mensaje,
+                'p_prioridad': ticket_data.prioridad or "media"
+            }
+        ).execute()
 
         if not response.data:
             raise HTTPException(
@@ -160,13 +160,11 @@ async def get_tickets(
     Los tickets se ordenan por fecha de creación (más recientes primero).
     """
     try:
-        response = (
-            supabase.table("tickets_soporte")
-            .select("*")
-            .eq("id_usuario", str(user_id))
-            .order("fecha_creacion", desc=True)  # Más recientes primero
-            .execute()
-        )
+        # Cambio: Usar RPC en lugar de select directo
+        response = supabase.rpc(
+            'api_listar_tickets',
+            {'p_id_usuario': str(user_id)}
+        ).execute()
 
         tickets = response.data or []
         return [TicketRead(**t) for t in tickets]
@@ -190,27 +188,28 @@ async def get_ticket(
     Obtiene un ticket específico por ID (con verificación de ownership).
     """
     try:
-        response = (
-            supabase.table("tickets_soporte")
-            .select("*")
-            .eq("id_ticket", str(ticket_id))
-            .eq("id_usuario", str(user_id))
-            .single()
-            .execute()
-        )
+        # Cambio: Usar RPC en lugar de select directo
+        response = supabase.rpc(
+            'api_obtener_ticket',
+            {
+                'p_id_ticket': str(ticket_id),
+                'p_id_usuario': str(user_id)
+            }
+        ).execute()
 
-        ticket = response.data
-        if not ticket:
+        if not response.data:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Ticket no encontrado"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Ticket no encontrado",
             )
 
+        ticket = response.data[0]
         return TicketRead(**ticket)
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[ERROR] Failed to read ticket: {e}")
+        logger.error(f"[ERROR] Failed to get ticket: {e}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Ticket no encontrado"
         )

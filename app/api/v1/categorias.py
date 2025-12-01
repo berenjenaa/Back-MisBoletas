@@ -24,12 +24,11 @@ async def list_categorias(
     Obtener todas las categorías del usuario.
     """
     try:
-        response = (
-            supabase.table("categorias")
-            .select("*")
-            .eq("id_usuario", str(user_id))
-            .execute()
-        )
+        # Cambio: Usar RPC en lugar de select directo
+        response = supabase.rpc(
+            'api_listar_categorias',
+            {'p_id_usuario': str(user_id)}
+        ).execute()
         return response.data
     except Exception as e:
         logger.error(f"[ERROR] Failed to list categorias: {e}")
@@ -48,15 +47,24 @@ async def get_categoria(
     Obtener una categoría específica.
     """
     try:
-        response = (
-            supabase.table("categorias")
-            .select("*")
-            .eq("id_categoria", str(categoria_id))
-            .eq("id_usuario", str(user_id))
-            .single()
-            .execute()
-        )
-        return response.data
+        # Cambio: Usar RPC en lugar de select directo
+        response = supabase.rpc(
+            'api_obtener_categoria',
+            {
+                'p_id_categoria': str(categoria_id),
+                'p_id_usuario': str(user_id)
+            }
+        ).execute()
+        
+        if not response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Categoría no encontrada",
+            )
+        
+        return response.data[0]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[ERROR] Categoria not found: {e}")
         raise HTTPException(
@@ -74,12 +82,15 @@ async def create_categoria(
     Crear una nueva categoría.
     """
     try:
-        data = {
-            "id_usuario": str(user_id),
-            "nombre": categoria.nombre,
-            "color": categoria.color,
-        }
-        response = supabase.table("categorias").insert(data).execute()
+        # Cambio: Usar RPC en lugar de insert directo
+        response = supabase.rpc(
+            'api_crear_categoria',
+            {
+                'p_id_usuario': str(user_id),
+                'p_nombre': categoria.nombre,
+                'p_color': categoria.color
+            }
+        ).execute()
         return response.data[0]
     except Exception as e:
         logger.error(f"[ERROR] Failed to create categoria: {e}")
@@ -99,15 +110,16 @@ async def update_categoria(
     Actualizar una categoría existente.
     """
     try:
-        # Verify ownership
-        response = (
-            supabase.table("categorias")
-            .select("*")
-            .eq("id_categoria", str(categoria_id))
-            .eq("id_usuario", str(user_id))
-            .single()
-            .execute()
-        )
+        # Cambio: Usar RPC en lugar de update directo
+        response = supabase.rpc(
+            'api_actualizar_categoria',
+            {
+                'p_id_categoria': str(categoria_id),
+                'p_id_usuario': str(user_id),
+                'p_nombre': categoria.nombre,
+                'p_color': categoria.color
+            }
+        ).execute()
 
         if not response.data:
             raise HTTPException(
@@ -115,17 +127,7 @@ async def update_categoria(
                 detail="Categoría no encontrada",
             )
 
-        update_data = {
-            "nombre": categoria.nombre,
-            "color": categoria.color,
-        }
-        result = (
-            supabase.table("categorias")
-            .update(update_data)
-            .eq("id", str(categoria_id))
-            .execute()
-        )
-        return result.data[0]
+        return response.data[0]
     except HTTPException:
         raise
     except Exception as e:
@@ -145,24 +147,13 @@ async def delete_categoria(
     Eliminar una categoría.
     """
     try:
-        # Verify ownership first
-        response = (
-            supabase.table("categorias")
-            .select("*")
-            .eq("id_categoria", str(categoria_id))
-            .eq("id_usuario", str(user_id))
-            .single()
-            .execute()
-        )
-
-        if not response.data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Categoría no encontrada",
-            )
-
-        supabase.table("categorias").delete().eq(
-            "id_categoria", str(categoria_id)
+        # Cambio: Usar RPC en lugar de delete directo
+        response = supabase.rpc(
+            'api_eliminar_categoria',
+            {
+                'p_id_categoria': str(categoria_id),
+                'p_id_usuario': str(user_id)
+            }
         ).execute()
         return None
     except HTTPException:

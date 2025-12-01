@@ -25,13 +25,11 @@ async def get_products(
 ):
     """Obtiene todos los productos del usuario autenticado (excluyendo eliminados)."""
     try:
-        response = (
-            supabase.table("productos")
-            .select("*")
-            .eq("id_usuario", str(user_id))
-            .is_("fecha_eliminacion", "null")
-            .execute()
-        )
+        # Cambio: Usar RPC en lugar de tabla directa
+        response = supabase.rpc(
+            'api_listar_productos',
+            {'p_id_usuario': str(user_id)}
+        ).execute()
 
         productos = response.data or []
         return [ProductRead(**p) for p in productos]
@@ -53,23 +51,22 @@ async def get_product(
 ):
     """Obtiene un producto específico por ID (con verificación de ownership, excluyendo eliminados)."""
     try:
-        response = (
-            supabase.table("productos")
-            .select("*")
-            .eq("id_producto", str(product_id))
-            .eq("id_usuario", str(user_id))
-            .is_("fecha_eliminacion", "null")
-            .single()
-            .execute()
-        )
+        # Cambio: Usar RPC en lugar de tabla directa
+        response = supabase.rpc(
+            'api_obtener_producto',
+            {
+                'p_id_producto': str(product_id),
+                'p_id_usuario': str(user_id)
+            }
+        ).execute()
 
-        producto = response.data
-        if not producto:
+        producto_list = response.data or []
+        if not producto_list:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado"
             )
 
-        return ProductRead(**producto)
+        return ProductRead(**producto_list[0])
 
     except HTTPException:
         raise
@@ -92,20 +89,22 @@ async def create_product(
 ):
     """Crea un nuevo producto asociado al usuario autenticado."""
     try:
-        # Preparar datos para insertar
-        insert_data = {
-            "id_usuario": str(user_id),
-            "nombre": product_data.nombre,
-            "fecha_compra": product_data.fecha_compra,
-            "duracion_garantia_meses": product_data.duracion_garantia_meses,
-            "marca": product_data.marca,
-            "modelo": product_data.modelo,
-            "tienda": product_data.tienda,
-            "notas": product_data.notas,
-            "precio": float(product_data.precio) if product_data.precio else None,
-        }
-
-        response = supabase.table("productos").insert(insert_data).execute()
+        # Cambio: Usar RPC en lugar de insert directo
+        response = supabase.rpc(
+            'api_crear_producto',
+            {
+                'p_id_usuario': str(user_id),
+                'p_nombre': product_data.nombre,
+                'p_fecha_compra': product_data.fecha_compra,
+                'p_duracion_garantia': product_data.duracion_garantia_meses,
+                'p_marca': product_data.marca,
+                'p_modelo': product_data.modelo,
+                'p_tienda': product_data.tienda,
+                'p_notas': product_data.notas,
+                'p_precio': float(product_data.precio) if product_data.precio else None,
+                'p_id_categoria': None  # Por ahora sin categoría en creación
+            }
+        ).execute()
 
         if not response.data:
             raise HTTPException(
@@ -136,34 +135,23 @@ async def update_product(
 ):
     """Actualiza un producto existente del usuario autenticado."""
     try:
-        # Preparar datos de actualización (solo campos no None)
-        update_data = {}
-        if product_data.nombre is not None:
-            update_data["nombre"] = product_data.nombre
-        if product_data.fecha_compra is not None:
-            update_data["fecha_compra"] = product_data.fecha_compra
-        if product_data.duracion_garantia_meses is not None:
-            update_data["duracion_garantia_meses"] = (
-                product_data.duracion_garantia_meses
-            )
-        if product_data.marca is not None:
-            update_data["marca"] = product_data.marca
-        if product_data.modelo is not None:
-            update_data["modelo"] = product_data.modelo
-        if product_data.tienda is not None:
-            update_data["tienda"] = product_data.tienda
-        if product_data.notas is not None:
-            update_data["notas"] = product_data.notas
-        if product_data.precio is not None:
-            update_data["precio"] = float(product_data.precio)
-
-        response = (
-            supabase.table("productos")
-            .update(update_data)
-            .eq("id_producto", str(product_id))
-            .eq("id_usuario", str(user_id))
-            .execute()
-        )
+        # Cambio: Usar RPC en lugar de update directo
+        response = supabase.rpc(
+            'api_actualizar_producto',
+            {
+                'p_id_producto': str(product_id),
+                'p_id_usuario': str(user_id),
+                'p_nombre': product_data.nombre,
+                'p_fecha_compra': product_data.fecha_compra,
+                'p_duracion_garantia': product_data.duracion_garantia_meses,
+                'p_marca': product_data.marca,
+                'p_modelo': product_data.modelo,
+                'p_tienda': product_data.tienda,
+                'p_notas': product_data.notas,
+                'p_precio': float(product_data.precio) if product_data.precio else None,
+                'p_id_categoria': None
+            }
+        ).execute()
 
         if not response.data:
             raise HTTPException(
@@ -199,40 +187,17 @@ async def delete_product(
     Esto permite recuperarlo si es necesario desde la tabla de auditoría.
     """
     try:
-        from datetime import datetime
+        # Cambio: Usar RPC en lugar de update directo
+        response = supabase.rpc(
+            'api_eliminar_producto',
+            {
+                'p_id_producto': str(product_id),
+                'p_id_usuario': str(user_id)
+            }
+        ).execute()
 
-        # Verificar que el producto existe y pertenece al usuario
-        check_response = (
-            supabase.table("productos")
-            .select("id_producto")
-            .eq("id_producto", str(product_id))
-            .eq("id_usuario", str(user_id))
-            .is_("fecha_eliminacion", "null")
-            .single()
-            .execute()
-        )
-
-        if not check_response.data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado"
-            )
-
-        # Realizar Soft Delete (UPDATE con fecha_eliminacion)
-        update_data = {"fecha_eliminacion": datetime.utcnow().isoformat()}
-
-        response = (
-            supabase.table("productos")
-            .update(update_data)
-            .eq("id_producto", str(product_id))
-            .eq("id_usuario", str(user_id))
-            .execute()
-        )
-
-        if not response.data:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Error al eliminar producto",
-            )
+        # api_eliminar_producto devuelve VOID, así que no verificamos response.data
+        # Si no hay error, el delete fue exitoso
 
         return None
 

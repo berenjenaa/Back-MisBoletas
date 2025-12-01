@@ -171,29 +171,16 @@ async def get_documentos_by_producto(
 ):
     """Obtiene todos los documentos de un producto del usuario."""
     try:
-        # Verificar ownership del producto
-        prod_response = (
-            supabase.table("productos")
-            .select("id")
-            .eq("id", str(producto_id))
-            .eq("user_id", str(user_id))
-            .execute()
-        )
+        # Cambio: Usar RPC en lugar de verificación + select
+        response = supabase.rpc(
+            'api_obtener_documentos_producto',
+            {
+                'p_id_producto': str(producto_id),
+                'p_id_usuario': str(user_id)
+            }
+        ).execute()
 
-        if not prod_response.data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado"
-            )
-
-        # Obtener documentos
-        docs_response = (
-            supabase.table("documentos")
-            .select("*")
-            .eq("producto_id", str(producto_id))
-            .execute()
-        )
-
-        documentos = docs_response.data or []
+        documentos = response.data or []
         return [DocumentoListItem(**d) for d in documentos]
 
     except HTTPException:
@@ -217,20 +204,21 @@ async def get_documento(
 ):
     """Obtiene un documento específico por ID."""
     try:
-        response = (
-            supabase.table("documentos")
-            .select("*")
-            .eq("id", str(documento_id))
-            .single()
-            .execute()
-        )
+        # Cambio: Usar RPC en lugar de select directo
+        response = supabase.rpc(
+            'api_obtener_documento',
+            {
+                'p_id_documento': str(documento_id),
+                'p_id_usuario': str(user_id)
+            }
+        ).execute()
 
-        documento = response.data
-        if not documento:
+        if not response.data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Documento no encontrado"
             )
 
+        documento = response.data[0]
         return DocumentoRead(**documento)
 
     except HTTPException:
