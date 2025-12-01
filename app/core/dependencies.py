@@ -11,7 +11,7 @@ from fastapi.security import HTTPBearer
 from typing import Optional
 from pydantic import BaseModel
 
-from app.db.supabase import supabase
+from app.core.config import supabase
 
 
 # =======================================================================
@@ -104,7 +104,6 @@ async def get_current_user(
     except Exception as e:
         print(f"[ERROR] Error validating token: {e}")
         raise credentials_exception
-
 
 
 # =======================================================================
