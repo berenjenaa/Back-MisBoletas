@@ -54,6 +54,12 @@ class SupabaseClient:
         """Obtener referencia a una tabla de Supabase."""
         return self.client.table(table_name)
 
+    def rpc(self, function_name: str, params: dict = None):
+        """Llamar a una función RPC en Supabase."""
+        if params is None:
+            params = {}
+        return self.client.rpc(function_name, params)
+
     def is_connected(self) -> bool:
         """Verificar si hay conexión activa."""
         try:
@@ -90,7 +96,9 @@ class SupabaseAdminClient:
                     )
                     print("[OK] Supabase admin client initialized successfully")
                 else:
-                    print("[WARNING] SUPABASE_SERVICE_ROLE_KEY not configured - admin operations will use anon key")
+                    print(
+                        "[WARNING] SUPABASE_SERVICE_ROLE_KEY not configured - admin operations will use anon key"
+                    )
             except Exception as e:
                 print(f"[ERROR] Error initializing Supabase admin client: {e}")
                 # No lanzar excepción, usar anon key como fallback
@@ -108,6 +116,12 @@ class SupabaseAdminClient:
     def get_table(self, table_name: str):
         """Obtener referencia a una tabla de Supabase (admin)."""
         return self.client.table(table_name)
+
+    def rpc(self, function_name: str, params: dict = None):
+        """Llamar a una función RPC en Supabase (admin)."""
+        if params is None:
+            params = {}
+        return self.client.rpc(function_name, params)
 
     def is_connected(self) -> bool:
         """Verificar si hay conexión activa."""

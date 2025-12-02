@@ -356,7 +356,9 @@ async def delete_documento(
                 logger.warning(f"[WARNING] GCS deletion failed: {e}")
 
         # 3. Eliminar de Supabase
-        supabase_admin.get_table("documentos").delete().eq("id", str(documento_id)).execute()
+        supabase_admin.get_table("documentos").delete().eq(
+            "id", str(documento_id)
+        ).execute()
 
         return None
 

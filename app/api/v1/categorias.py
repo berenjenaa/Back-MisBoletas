@@ -24,11 +24,13 @@ async def list_categorias(
     Obtener todas las categorías del usuario.
     """
     try:
-        # Cambio: Usar RPC en lugar de select directo
-        response = supabase.rpc(
-            "api_listar_categorias", {"p_id_usuario": str(user_id)}
-        ).execute()
-        return response.data
+        response = (
+            supabase_admin.get_table("categorias")
+            .select("*")
+            .eq("id_usuario", str(user_id))
+            .execute()
+        )
+        return response.data or []
     except Exception as e:
         logger.error(f"[ERROR] Failed to list categorias: {e}")
         raise HTTPException(

@@ -49,17 +49,15 @@ async def create_ticket(
         user_id = current_user.id
         email_usuario = current_user.email
 
-        # 1. Insertar ticket en Supabase usando RPC
-        # Cambio: Usar RPC en lugar de insert directo
-        response = supabase.rpc(
-            "api_crear_ticket",
-            {
-                "p_id_usuario": str(user_id),
-                "p_asunto": ticket_data.asunto,
-                "p_descripcion": ticket_data.mensaje,
-                "p_prioridad": ticket_data.prioridad or "media",
-            },
-        ).execute()
+        # 1. Insertar ticket en Supabase
+        ticket_payload = {
+            "id_usuario": str(user_id),
+            "asunto": ticket_data.asunto,
+            "mensaje": ticket_data.mensaje,
+            "prioridad": ticket_data.prioridad or "media",
+            "estado": "abierto",
+        }
+        response = supabase_admin.get_table("tickets").insert(ticket_payload).execute()
 
         if not response.data:
             raise HTTPException(
@@ -169,10 +167,13 @@ async def get_tickets(
     Los tickets se ordenan por fecha de creación (más recientes primero).
     """
     try:
-        # Cambio: Usar RPC en lugar de select directo
-        response = supabase.rpc(
-            "api_listar_tickets", {"p_id_usuario": str(user_id)}
-        ).execute()
+        response = (
+            supabase_admin.get_table("tickets")
+            .select("*")
+            .eq("id_usuario", str(user_id))
+            .order("fecha_creacion", desc=True)
+            .execute()
+        )
 
         tickets = response.data or []
         return [TicketRead(**t) for t in tickets]
@@ -196,11 +197,14 @@ async def get_ticket(
     Obtiene un ticket específico por ID (con verificación de ownership).
     """
     try:
-        # Cambio: Usar RPC en lugar de select directo
-        response = supabase.rpc(
-            "api_obtener_ticket",
-            {"p_id_ticket": str(ticket_id), "p_id_usuario": str(user_id)},
-        ).execute()
+        response = (
+            supabase_admin.get_table("tickets")
+            .select("*")
+            .eq("id_ticket", str(ticket_id))
+            .eq("id_usuario", str(user_id))
+            .single()
+            .execute()
+        )
 
         if not response.data:
             raise HTTPException(

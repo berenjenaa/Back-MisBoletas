@@ -5,7 +5,7 @@ from uuid import UUID
 from datetime import datetime
 import logging
 
-from app.db.supabase import supabase_admin
+from app.db.supabase import supabase_admin, supabase
 from app.core.dependencies import get_current_user_id, get_active_user_id
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,9 @@ async def register(data: UserRegisterRequest):
     try:
         # Registrar en Supabase Auth
         # El trigger on_auth_user_created se ejecutará automáticamente
-        res = supabase.auth.sign_up({"email": data.correo, "password": data.contrasena})
+        res = supabase.client.auth.sign_up(
+            {"email": data.correo, "password": data.contrasena}
+        )
 
         if not res.user:
             error_msg = str(res) if res else "Unknown error"
@@ -116,7 +118,7 @@ async def login(data: UserLoginRequest):
     """
     try:
         # Login en Supabase Auth
-        res = supabase.auth.sign_in_with_password(
+        res = supabase.client.auth.sign_in_with_password(
             {"email": data.correo, "password": data.contrasena}
         )
 
