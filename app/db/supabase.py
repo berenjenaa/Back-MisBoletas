@@ -76,7 +76,6 @@ class SupabaseAdminClient:
 
     _instance: Optional["SupabaseAdminClient"] = None
     _client: Optional[Client] = None
-    _fallback_client: Optional[Client] = None
 
     def __new__(cls):
         """Patrón Singleton: crear una única instancia."""
@@ -99,28 +98,18 @@ class SupabaseAdminClient:
                         "[OK] Supabase admin client initialized successfully with SERVICE_ROLE_KEY"
                     )
                 else:
-                    print(
-                        "[WARNING] SUPABASE_SERVICE_ROLE_KEY not configured - will use anon key with RLS"
-                    )
-                    # Fallback a anon key si no hay service role
-                    self._fallback_client = supabase.client
+                    print("[WARNING] SUPABASE_SERVICE_ROLE_KEY not configured")
             except Exception as e:
                 print(f"[ERROR] Error initializing Supabase admin client: {e}")
-                print("[WARNING] Falling back to anon key")
-                # Fallback a anon key si hay error
-                self._fallback_client = supabase.client
 
     @property
     def client(self) -> Client:
         """Obtener el cliente admin de Supabase."""
         if self._client is not None:
             return self._client
-        elif self._fallback_client is not None:
-            return self._fallback_client
         else:
-            # Ultima opcion: inicializar y retornar anon key
-            self._initialize()
-            return self._fallback_client if self._fallback_client else supabase.client
+            # Usar anon key como fallback si no hay admin client
+            return supabase.client
 
     def get_table(self, table_name: str):
         """Obtener referencia a una tabla de Supabase (admin)."""

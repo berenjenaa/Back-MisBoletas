@@ -96,15 +96,28 @@ async def create_categoria(
         }
         logger.info(f"[INFO] Creating categoria: {payload}")
         response = supabase_admin.get_table("categorias").insert(payload).execute()
+
+        if not response.data or len(response.data) == 0:
+            logger.error(f"[ERROR] Insert returned empty data: {response}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error creando categoría. Por favor intenta más tarde.",
+            )
+
         logger.info(f"[INFO] Categoria created: {response.data}")
         return response.data[0]
+    except HTTPException:
+        raise
     except Exception as e:
         error_str = str(e).lower()
         logger.error(f"[ERROR] Failed to create categoria: {e}", exc_info=True)
         # Si es error de RLS, retornar error apropiado
         if "42501" in error_str or "permission denied" in error_str:
             logger.warning(f"[WARNING] RLS blocked categoria creation")
-            return []  # Retornar lista vacía como fallback
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permisos para crear categorías.",
+            )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error creando categoría. Por favor intenta más tarde.",

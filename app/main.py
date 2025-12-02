@@ -15,6 +15,13 @@ from app.db.supabase import supabase_admin
 def startup_event():
     """Verifica la conexión con Supabase al iniciar."""
     logging.info("[INFO] Starting MisBoletas API...")
+    logging.info(f"[DEBUG] SUPABASE_URL configured: {bool(settings.SUPABASE_URL)}")
+    logging.info(f"[DEBUG] SUPABASE_KEY configured: {bool(settings.SUPABASE_KEY)}")
+    logging.info(
+        f"[DEBUG] SUPABASE_SERVICE_ROLE_KEY configured: {bool(settings.SUPABASE_SERVICE_ROLE_KEY)}"
+    )
+    logging.info(f"[DEBUG] ENV mode: {settings.ENV}")
+
     if supabase:
         logging.info("[OK] Supabase client initialized")
     else:
@@ -22,11 +29,15 @@ def startup_event():
 
     # Verificar admin client
     if supabase_admin.is_connected():
-        logging.info("[OK] Supabase ADMIN client initialized - SERVICE_ROLE enabled")
+        logging.info("[✅ OK] Supabase ADMIN client initialized with SERVICE_ROLE_KEY")
     else:
         logging.warning(
-            "[WARNING] Supabase ADMIN client NOT initialized - using anon key with RLS"
+            "[⚠️ WARNING] Supabase ADMIN client NOT initialized - using anon key with RLS"
         )
+        if settings.ENV == "render":
+            logging.error(
+                "[❌ CRITICAL] SERVICE_ROLE_KEY missing in Render! All DB operations will fail!"
+            )
 
     # Mensaje final con acceso a docs
     logging.info("[OK] Server ready - Access docs at: http://localhost:8080/docs")

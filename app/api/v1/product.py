@@ -104,7 +104,8 @@ async def create_product(
 
         response = supabase_admin.get_table("productos").insert(payload).execute()
 
-        if not response.data:
+        if not response.data or len(response.data) == 0:
+            logger.error(f"[ERROR] Insert returned empty data: {response}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Error al crear producto",
