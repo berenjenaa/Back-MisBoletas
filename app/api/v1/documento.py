@@ -171,11 +171,14 @@ async def get_documentos_by_producto(
 ):
     """Obtiene todos los documentos de un producto del usuario."""
     try:
-        # Cambio: Usar RPC en lugar de verificación + select
-        response = supabase.rpc(
-            "api_obtener_documentos_producto",
-            {"p_id_producto": str(producto_id), "p_id_usuario": str(user_id)},
-        ).execute()
+        response = (
+            supabase_admin.get_table("documento_productos")
+            .select(
+                "documento_id, documentos(id_documento, nombre_archivo, url_gcs, content_type, metadata_ocr, fecha_subida)"
+            )
+            .eq("id_producto", str(producto_id))
+            .execute()
+        )
 
         documentos = response.data or []
         return [DocumentoListItem(**d) for d in documentos]
@@ -201,11 +204,14 @@ async def get_documento(
 ):
     """Obtiene un documento específico por ID."""
     try:
-        # Cambio: Usar RPC en lugar de select directo
-        response = supabase.rpc(
-            "api_obtener_documento",
-            {"p_id_documento": str(documento_id), "p_id_usuario": str(user_id)},
-        ).execute()
+        response = (
+            supabase_admin.get_table("documentos")
+            .select("*")
+            .eq("id_documento", str(documento_id))
+            .eq("id_usuario", str(user_id))
+            .is_("fecha_eliminacion", "null")
+            .execute()
+        )
 
         if not response.data:
             raise HTTPException(

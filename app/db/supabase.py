@@ -97,10 +97,11 @@ class SupabaseAdminClient:
                     print("[OK] Supabase admin client initialized successfully")
                 else:
                     print(
-                        "[WARNING] SUPABASE_SERVICE_ROLE_KEY not configured - admin operations will use anon key"
+                        "[WARNING] SUPABASE_SERVICE_ROLE_KEY not configured - will use anon key with RLS"
                     )
             except Exception as e:
                 print(f"[ERROR] Error initializing Supabase admin client: {e}")
+                print("[WARNING] Falling back to anon key")
                 # No lanzar excepción, usar anon key como fallback
 
     @property

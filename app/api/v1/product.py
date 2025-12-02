@@ -30,7 +30,14 @@ async def get_products(
         productos = response.data or []
         return [ProductRead(**p) for p in productos]
     except Exception as e:
-        logger.error(f"[ERROR] Failed to list products: {str(e)}", exc_info=True)
+        error_msg = str(e)
+        # Si es error de RLS (permission denied), retornar lista vacía
+        if "permission denied" in error_msg.lower() or "42501" in error_msg:
+            logger.warning(
+                f"[WARNING] RLS blocked query - returning empty list: {error_msg}"
+            )
+            return []
+        logger.error(f"[ERROR] Failed to list products: {error_msg}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al obtener productos",
