@@ -8,6 +8,7 @@ from app.api.v1 import user, product, documento, categorias, tickets
 from app.core.middleware import setup_middleware
 from app.core.error_handlers import setup_exception_handlers
 from app.core.config import settings, supabase
+from app.db.supabase import supabase_admin
 
 
 # --- 1. Función de inicialización ---
@@ -18,6 +19,14 @@ def startup_event():
         logging.info("[OK] Supabase client initialized")
     else:
         logging.warning("[WARNING] Supabase client not initialized correctly")
+
+    # Verificar admin client
+    if supabase_admin.is_connected():
+        logging.info("[OK] Supabase ADMIN client initialized - SERVICE_ROLE enabled")
+    else:
+        logging.warning(
+            "[WARNING] Supabase ADMIN client NOT initialized - using anon key with RLS"
+        )
 
     # Mensaje final con acceso a docs
     logging.info("[OK] Server ready - Access docs at: http://localhost:8080/docs")

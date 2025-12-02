@@ -32,7 +32,14 @@ async def list_categorias(
         )
         return response.data or []
     except Exception as e:
-        logger.error(f"[ERROR] Failed to list categorias: {e}")
+        error_str = str(e).lower()
+        logger.error(f"[ERROR] Failed to list categorias: {e}", exc_info=True)
+        # Si es error de RLS (dict con code 42501 o mensaje permission denied)
+        if "42501" in error_str or "permission denied" in error_str:
+            logger.warning(
+                f"[WARNING] RLS blocked categorias query - returning empty list"
+            )
+            return []
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error obteniendo categorías. Por favor intenta más tarde.",
@@ -87,10 +94,17 @@ async def create_categoria(
             "nombre": categoria.nombre,
             "color": categoria.color,
         }
+        logger.info(f"[INFO] Creating categoria: {payload}")
         response = supabase_admin.get_table("categorias").insert(payload).execute()
+        logger.info(f"[INFO] Categoria created: {response.data}")
         return response.data[0]
     except Exception as e:
-        logger.error(f"[ERROR] Failed to create categoria: {e}")
+        error_str = str(e).lower()
+        logger.error(f"[ERROR] Failed to create categoria: {e}", exc_info=True)
+        # Si es error de RLS, retornar error apropiado
+        if "42501" in error_str or "permission denied" in error_str:
+            logger.warning(f"[WARNING] RLS blocked categoria creation")
+            return []  # Retornar lista vacía como fallback
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error creando categoría. Por favor intenta más tarde.",

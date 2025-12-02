@@ -76,6 +76,7 @@ class SupabaseAdminClient:
 
     _instance: Optional["SupabaseAdminClient"] = None
     _client: Optional[Client] = None
+    _fallback_client: Optional[Client] = None
 
     def __new__(cls):
         """Patrón Singleton: crear una única instancia."""
@@ -94,25 +95,32 @@ class SupabaseAdminClient:
                         supabase_url=settings.SUPABASE_URL,
                         supabase_key=settings.SUPABASE_SERVICE_ROLE_KEY,
                     )
-                    print("[OK] Supabase admin client initialized successfully")
+                    print(
+                        "[OK] Supabase admin client initialized successfully with SERVICE_ROLE_KEY"
+                    )
                 else:
                     print(
                         "[WARNING] SUPABASE_SERVICE_ROLE_KEY not configured - will use anon key with RLS"
                     )
+                    # Fallback a anon key si no hay service role
+                    self._fallback_client = supabase.client
             except Exception as e:
                 print(f"[ERROR] Error initializing Supabase admin client: {e}")
                 print("[WARNING] Falling back to anon key")
-                # No lanzar excepción, usar anon key como fallback
+                # Fallback a anon key si hay error
+                self._fallback_client = supabase.client
 
     @property
     def client(self) -> Client:
         """Obtener el cliente admin de Supabase."""
-        if self._client is None:
+        if self._client is not None:
+            return self._client
+        elif self._fallback_client is not None:
+            return self._fallback_client
+        else:
+            # Ultima opcion: inicializar y retornar anon key
             self._initialize()
-        # Si no hay cliente admin, retornar el cliente anon como fallback
-        if self._client is None:
-            return supabase.client
-        return self._client
+            return self._fallback_client if self._fallback_client else supabase.client
 
     def get_table(self, table_name: str):
         """Obtener referencia a una tabla de Supabase (admin)."""
