@@ -104,7 +104,6 @@ async def procesar_documento_ocr(
                 "numero_boleta": resultado_ocr.get("numero_boleta"),
                 "fecha_emision": resultado_ocr.get("fecha_emision"),
                 "error_ocr": None,
-                "id_usuario": id_usuario,
             }
         ).eq("id_documento", str(id_documento)).execute()
 
