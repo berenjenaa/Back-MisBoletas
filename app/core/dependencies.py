@@ -159,6 +159,9 @@ async def get_active_user_id(
     except HTTPException:
         raise
     except Exception as e:
-        # Si hay error consultando perfil, permitir pero loguear
-        print(f"[WARNING] Error checking account status: {e}")
-        return current_user.id
+        # Si hay error consultando perfil, negar acceso por seguridad
+        print(f"[ERROR] Error checking account status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No se pudo verificar el estado de tu cuenta. Intenta más tarde.",
+        )

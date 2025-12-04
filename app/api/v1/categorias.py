@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
 from uuid import UUID
+from datetime import datetime, timezone
 import logging
 
 from app.core.dependencies import get_current_user_id, get_active_user_id
@@ -21,13 +22,14 @@ async def list_categorias(
     user_id: UUID = Depends(get_active_user_id),
 ):
     """
-    Obtener todas las categorías del usuario.
+    Obtener todas las categorías del usuario (excluyendo eliminadas).
     """
     try:
         response = (
             supabase_admin.get_table("categorias")
             .select("*")
             .eq("id_usuario", str(user_id))
+            .is_("fecha_eliminacion", "null")  # Soft delete filter
             .execute()
         )
         return response.data or []
@@ -165,12 +167,13 @@ async def delete_categoria(
     user_id: UUID = Depends(get_active_user_id),
 ):
     """
-    Eliminar una categoría.
+    Eliminar una categoría (Soft Delete).
+    Marca con fecha_eliminacion en lugar de borrar físicamente.
     """
     try:
         response = (
             supabase_admin.get_table("categorias")
-            .delete()
+            .update({"fecha_eliminacion": datetime.now(timezone.utc).isoformat()})
             .eq("id_categoria", str(categoria_id))
             .eq("id_usuario", str(user_id))
             .execute()

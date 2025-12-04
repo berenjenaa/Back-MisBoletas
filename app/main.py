@@ -2,7 +2,17 @@ import logging
 from fastapi import FastAPI
 
 # --- Importación de Routers ---
-from app.api.v1 import user, product, documento, categorias, tickets
+from app.api.v1 import (
+    user,
+    product,
+    documento,
+    categorias,
+    tickets,
+    organizations,
+    alerts,
+    admin_gcs,
+    webhooks,
+)
 
 # --- Importaciones del Core ---
 from app.core.middleware import setup_middleware
@@ -58,8 +68,16 @@ tags_metadata = [
         "description": "Organizar productos por categorías personalizadas.",
     },
     {
+        "name": "Organizaciones",
+        "description": "Gestionar organizaciones (familia, empresa, jjvv, clubs).",
+    },
+    {
         "name": "Documentos",
         "description": "Subir archivos (boletas, garantías) con OCR automático.",
+    },
+    {
+        "name": "Alertas",
+        "description": "Alertas de vencimiento de garantías.",
     },
     {
         "name": "Tickets",
@@ -101,7 +119,7 @@ app = FastAPI(
 # --- 5. Configurar Middleware ---
 setup_middleware(app)
 
-# --- 6. Configurar Manejadores de Errores Globales ---
+# --- 6. Configurar Exception Handlers ---
 setup_exception_handlers(app)
 
 # --- 7. Registrar Routers de la API ---
@@ -110,8 +128,12 @@ api_v1_prefix = "/api/v1"
 app.include_router(user.router, prefix=api_v1_prefix, tags=["Usuarios"])
 app.include_router(product.router, prefix=api_v1_prefix, tags=["Productos"])
 app.include_router(categorias.router, prefix=api_v1_prefix, tags=["Categorías"])
+app.include_router(organizations.router, prefix=api_v1_prefix, tags=["Organizaciones"])
 app.include_router(documento.router, prefix=api_v1_prefix, tags=["Documentos"])
+app.include_router(alerts.router, prefix=api_v1_prefix, tags=["Alertas"])
 app.include_router(tickets.router, prefix=api_v1_prefix, tags=["Tickets"])
+app.include_router(admin_gcs.router, prefix=api_v1_prefix)
+app.include_router(webhooks.router, prefix=api_v1_prefix)
 
 
 # --- 8. Endpoints de la App Principal (Raíz y Salud) ---

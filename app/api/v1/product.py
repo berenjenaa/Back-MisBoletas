@@ -99,7 +99,12 @@ async def create_product(
             "modelo": product_data.modelo,
             "tienda": product_data.tienda,
             "notas": product_data.notas,
-            "precio": int(product_data.precio) if product_data.precio else None,
+            "precio": float(product_data.precio) if product_data.precio else None,
+            "id_organizacion": (
+                str(product_data.id_organizacion)
+                if product_data.id_organizacion
+                else None
+            ),
         }
 
         response = supabase_admin.get_table("productos").insert(payload).execute()
@@ -110,6 +115,24 @@ async def create_product(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Error al crear producto",
             )
+
+        producto_id = response.data[0]["id_producto"]
+
+        # Guardar relación con categorías si existen
+        if product_data.categoria_ids and len(product_data.categoria_ids) > 0:
+            try:
+                categoria_relations = [
+                    {"id_producto": str(producto_id), "id_categoria": str(cat_id)}
+                    for cat_id in product_data.categoria_ids
+                ]
+                supabase_admin.get_table("producto_categorias").insert(
+                    categoria_relations
+                ).execute()
+                logger.info(f"[INFO] Categorías guardadas para producto {producto_id}")
+            except Exception as e:
+                logger.warning(f"[WARNING] Error saving categories: {e}")
+                # No fallar si hay error al guardar categorías
+
         return ProductRead(**response.data[0])
     except HTTPException:
         raise
@@ -141,7 +164,12 @@ async def update_product(
             "modelo": product_data.modelo,
             "tienda": product_data.tienda,
             "notas": product_data.notas,
-            "precio": int(product_data.precio) if product_data.precio else None,
+            "precio": float(product_data.precio) if product_data.precio else None,
+            "id_organizacion": (
+                str(product_data.id_organizacion)
+                if product_data.id_organizacion
+                else None
+            ),
         }
 
         response = (
@@ -156,6 +184,34 @@ async def update_product(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado"
             )
+
+        # Actualizar categorías si existen
+        if (
+            hasattr(product_data, "categoria_ids")
+            and product_data.categoria_ids is not None
+        ):
+            try:
+                # Eliminar categorías anteriores
+                supabase_admin.get_table("producto_categorias").delete().eq(
+                    "id_producto", str(product_id)
+                ).execute()
+
+                # Guardar nuevas categorías
+                if len(product_data.categoria_ids) > 0:
+                    categoria_relations = [
+                        {"id_producto": str(product_id), "id_categoria": str(cat_id)}
+                        for cat_id in product_data.categoria_ids
+                    ]
+                    supabase_admin.get_table("producto_categorias").insert(
+                        categoria_relations
+                    ).execute()
+                    logger.info(
+                        f"[INFO] Categorías actualizadas para producto {product_id}"
+                    )
+            except Exception as e:
+                logger.warning(f"[WARNING] Error updating categories: {e}")
+                # No fallar si hay error al guardar categorías
+
         return ProductRead(**response.data[0])
     except HTTPException:
         raise
@@ -176,17 +232,35 @@ async def delete_product(
     product_id: UUID,
     user_id: UUID = Depends(get_active_user_id),
 ):
-    """Realiza un Soft Delete de un producto."""
+    """Realiza un Soft Delete de un producto y limpia sus relaciones."""
     try:
-        from datetime import datetime
+        from datetime import datetime, timezone
 
+        # Soft delete del producto
         response = (
             supabase_admin.get_table("productos")
-            .update({"fecha_eliminacion": datetime.now().isoformat()})
+            .update({"fecha_eliminacion": datetime.now(timezone.utc).isoformat()})
             .eq("id_producto", str(product_id))
             .eq("id_usuario", str(user_id))
             .execute()
         )
+
+        if not response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado"
+            )
+
+        # Limpiar relaciones con categorías (soft delete de la relación)
+        try:
+            supabase_admin.get_table("producto_categorias").delete().eq(
+                "id_producto", str(product_id)
+            ).execute()
+            logger.info(f"[INFO] Categorías limpiadas para producto {product_id}")
+        except Exception as e:
+            logger.warning(
+                f"[WARNING] Error cleaning categories for product {product_id}: {e}"
+            )
+
         return None
     except HTTPException:
         raise

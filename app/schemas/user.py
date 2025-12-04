@@ -19,6 +19,7 @@ class UserRead(BaseModel):
     id: str  # UUID de Supabase
     email: str
     nombre: Optional[str] = None
+    id_rol: Optional[int] = None  # Nuevo: 1=admin, 2=usuario_normal, 3=empresa
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)

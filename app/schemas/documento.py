@@ -5,7 +5,7 @@ Incluye soporte para OCR metadata.
 """
 
 from pydantic import BaseModel, Field, ConfigDict
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional, Dict, Any
 from uuid import UUID
 
@@ -22,6 +22,13 @@ class DocumentoRead(BaseModel):
     content_type: Optional[str] = None
     size_bytes: Optional[int] = None
     metadata_ocr: Optional[Dict[str, Any]] = None  # OCR data
+    estado_ocr: Optional[str] = (
+        None  # 'pendiente' | 'procesando' | 'completado' | 'error'
+    )
+    error_ocr: Optional[str] = None  # Mensaje de error si OCR falló
+    numero_boleta: Optional[str] = None  # Nuevo
+    fecha_emision: Optional[date] = None  # Nuevo
+    duracion_garantia_especifica: Optional[int] = None  # Nuevo (en días/meses)
     fecha_subida: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -55,6 +62,13 @@ class DocumentoListItem(BaseModel):
     content_type: Optional[str] = None
     size_bytes: Optional[int] = None
     metadata_ocr: Optional[Dict[str, Any]] = None  # OCR summary
+    estado_ocr: Optional[str] = (
+        None  # 'pendiente' | 'procesando' | 'completado' | 'error'
+    )
+    error_ocr: Optional[str] = None  # Mensaje de error si OCR falló
+    numero_boleta: Optional[str] = None
+    fecha_emision: Optional[date] = None
+    duracion_garantia_especifica: Optional[int] = None
     fecha_subida: datetime
 
     model_config = ConfigDict(from_attributes=True)

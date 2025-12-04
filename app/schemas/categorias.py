@@ -57,6 +57,7 @@ class CategoriaRead(CategoriaBase):
     fecha_creacion: Optional[str] = (
         None  # Cambio: datetime → Optional[str] para compatibilidad con Supabase
     )
+    fecha_eliminacion: Optional[str] = None  # Soft delete
 
     model_config = ConfigDict(from_attributes=True)
 

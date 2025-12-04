@@ -212,3 +212,64 @@ async def process_boleta_from_gcs_uri(gcs_uri: str, user_id: str = None) -> dict
         "raw_entities": raw_entities,
         "total_entities": entity_count,
     }
+
+
+async def background_process_ocr(documento_id: str, gcs_uri: str, user_id: str) -> None:
+    """
+    Procesa OCR en background sin bloquear la respuesta HTTP.
+
+    Actualiza directamente en Supabase:
+    - estado_ocr: 'pendiente' -> 'procesando' -> 'completado'/'error'
+    - metadata_ocr: Resultado del OCR
+    - error_ocr: Mensaje de error (si falla)
+
+    Esta función se llama via asyncio.create_task() desde el endpoint.
+    No está en el request HTTP, por lo que el usuario recibe respuesta inmediatamente.
+
+    Args:
+        documento_id: UUID del documento
+        gcs_uri: URI de Google Cloud Storage (gs://...)
+        user_id: UUID del usuario (para logging)
+    """
+    from app.db.supabase import supabase_admin
+
+    try:
+        # 1. Marcar como procesando
+        logger.info(f"[BACKGROUND] Starting OCR processing for document {documento_id}")
+        supabase_admin.get_table("documentos").update({"estado_ocr": "procesando"}).eq(
+            "id", documento_id
+        ).execute()
+
+        # 2. Procesar OCR
+        ocr_result = await process_boleta_from_gcs_uri(gcs_uri=gcs_uri, user_id=user_id)
+
+        # 3. Guardar resultado en Supabase
+        supabase_admin.get_table("documentos").update(
+            {
+                "metadata_ocr": json.dumps(ocr_result),
+                "estado_ocr": "completado",
+                "error_ocr": None,
+            }
+        ).eq("id", documento_id).execute()
+
+        logger.info(
+            f"[BACKGROUND] OCR completed successfully for document {documento_id}"
+        )
+
+    except Exception as e:
+        # 4. Guardar error en Supabase
+        error_msg = str(e)[:500]  # Limitar a 500 caracteres
+        logger.error(
+            f"[BACKGROUND] OCR failed for document {documento_id}: {e}",
+            exc_info=True,
+        )
+
+        try:
+            supabase_admin.get_table("documentos").update(
+                {"estado_ocr": "error", "error_ocr": error_msg}
+            ).eq("id", documento_id).execute()
+        except Exception as db_error:
+            logger.error(
+                f"[BACKGROUND] Failed to update error state: {db_error}",
+                exc_info=True,
+            )

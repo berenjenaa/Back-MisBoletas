@@ -31,7 +31,8 @@ class ProductRead(BaseModel):
     modelo: Optional[str] = None
     tienda: Optional[str] = None
     notas: Optional[str] = None
-    precio: Optional[Decimal] = None
+    precio: Optional[Decimal] = Field(None, decimal_places=2)  # DECIMAL(12,2)
+    id_organizacion: Optional[UUID] = None  # FK a organizaciones
     fecha_creacion: Optional[str] = (
         None  # Cambio: datetime → Optional[str] para compatibilidad con Supabase
     )
@@ -48,8 +49,9 @@ class ProductCreate(BaseModel):
     marca: Optional[str] = Field(None, max_length=100)
     modelo: Optional[str] = Field(None, max_length=100)
     tienda: Optional[str] = Field(None, max_length=255)
+    precio: Optional[Decimal] = Field(None, decimal_places=2, ge=0)
+    id_organizacion: Optional[UUID] = None
     notas: Optional[str] = Field(None, max_length=5000)
-    precio: Optional[Decimal] = Field(None, ge=0)
     categoria_ids: Optional[List[UUID]] = []
 
 
@@ -63,4 +65,5 @@ class ProductUpdate(BaseModel):
     modelo: Optional[str] = Field(None, max_length=100)
     tienda: Optional[str] = Field(None, max_length=255)
     notas: Optional[str] = Field(None, max_length=5000)
-    precio: Optional[Decimal] = Field(None, ge=0)
+    precio: Optional[Decimal] = Field(None, decimal_places=2, ge=0)
+    id_organizacion: Optional[UUID] = None

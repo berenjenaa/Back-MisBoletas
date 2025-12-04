@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 import json
 import logging
+import asyncio
 
 from app.schemas.documento import (
     DocumentoRead,
@@ -13,7 +14,7 @@ from app.schemas.documento import (
 from app.db.supabase import supabase_admin
 from app.core.dependencies import get_current_user_id, get_active_user_id
 from app.services.gcs_service import get_gcs_service
-from app.services.ocr_service import process_boleta_from_gcs_uri
+from app.services.ocr_service import background_process_ocr
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -113,8 +114,7 @@ async def upload_documento(
 
         documento = response.data[0]
 
-        # 4. Procesar OCR si el archivo es imagen y Document AI está configurado
-        ocr_metadata = None
+        # 4. Procesar OCR en BACKGROUND (no bloquea la respuesta HTTP)
         gcs_uri = upload_result.get("gcs_uri")  # gs://bucket/path
 
         if (
@@ -124,29 +124,29 @@ async def upload_documento(
             and file.content_type
             in ["image/jpeg", "image/png", "image/pdf", "application/pdf"]
         ):
-            try:
-                logger.info(f"[INFO] Starting OCR for document {documento['id']}")
-                ocr_result = await process_boleta_from_gcs_uri(
-                    gcs_uri=gcs_uri, user_id=str(user_id)
+            # Guardar estado_ocr como 'pendiente' antes de lanzar background task
+            supabase_admin.get_table("documentos").update(
+                {"estado_ocr": "pendiente"}
+            ).eq("id", str(documento["id"])).execute()
+
+            # Actualizar documento local con estado pendiente
+            documento["estado_ocr"] = "pendiente"
+            documento["error_ocr"] = None
+
+            # Lanzar OCR en background (no espera la respuesta)
+            logger.info(
+                f"[INFO] Launching background OCR for document {documento['id']}"
+            )
+            asyncio.create_task(
+                background_process_ocr(
+                    documento_id=str(documento["id"]),
+                    gcs_uri=gcs_uri,
+                    user_id=str(user_id),
                 )
-
-                # Guardar resultado OCR en Supabase
-                supabase_admin.get_table("documentos").update(
-                    {"metadata_ocr": json.dumps(ocr_result)}
-                ).eq("id", str(documento["id"])).execute()
-
-                documento["metadata_ocr"] = ocr_result
-                logger.info(f"[OK] OCR completed for document {documento['id']}")
-
-            except Exception as ocr_error:
-                # No fallar si OCR falla - es opcional
-                logger.warning(
-                    f"[WARNING] OCR failed for document {documento['id']}: {ocr_error}. "
-                    "Continuing without OCR."
-                )
+            )
 
         return DocumentoUploadResponse(
-            message="Documento subido exitosamente",
+            message="Documento subido exitosamente. Escaneo OCR en progreso.",
             documento=DocumentoRead(**documento),
         )
 
@@ -172,11 +172,9 @@ async def get_documentos_by_producto(
     """Obtiene todos los documentos de un producto del usuario."""
     try:
         response = (
-            supabase_admin.get_table("documento_productos")
-            .select(
-                "documento_id, documentos(id_documento, nombre_archivo, url_gcs, content_type, metadata_ocr, fecha_subida)"
-            )
-            .eq("id_producto", str(producto_id))
+            supabase_admin.get_table("documentos")
+            .select("*")
+            .eq("producto_id", str(producto_id))
             .execute()
         )
 
@@ -333,11 +331,19 @@ async def delete_documento(
         )
 
     try:
-        # 1. Obtener documento de Supabase
+        import asyncio
+        from datetime import datetime, timezone
+        from app.services.gcs_cleanup_service import (
+            delete_gcs_file,
+            register_deletion_history,
+        )
+
+        # 1. Obtener documento
         doc_response = (
             supabase_admin.get_table("documentos")
-            .select("blob_name, url_gcs")
-            .eq("id", str(documento_id))
+            .select("*")
+            .eq("id_documento", str(documento_id))
+            .eq("id_usuario", str(user_id))
             .single()
             .execute()
         )
@@ -348,23 +354,25 @@ async def delete_documento(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Documento no encontrado"
             )
 
-        # 2. Extraer blob_name y eliminar de GCS
+        # 2. Soft delete en BD
+        supabase_admin.get_table("documentos").update(
+            {"fecha_eliminacion": datetime.now(timezone.utc).isoformat()}
+        ).eq("id_documento", str(documento_id)).execute()
+
+        logger.info(f"[OK] Document soft deleted: {documento_id}")
+
+        # 3. Registrar en historial
+        await register_deletion_history(
+            tabla="documentos",
+            id_registro=documento_id,
+            datos_antiguos=documento,
+            id_usuario=user_id,
+        )
+
+        # 4. Borrar archivo de GCS en background (sin bloquear respuesta)
         blob_name = documento.get("blob_name")
-        if not blob_name:
-            url_gcs = documento.get("url_gcs", "")
-            if url_gcs:
-                blob_name = url_gcs.split(f"{settings.GCS_BUCKET_NAME}/")[-1]
-
         if blob_name:
-            try:
-                gcs_service.delete_file(blob_name)
-            except Exception as e:
-                logger.warning(f"[WARNING] GCS deletion failed: {e}")
-
-        # 3. Eliminar de Supabase
-        supabase_admin.get_table("documentos").delete().eq(
-            "id", str(documento_id)
-        ).execute()
+            asyncio.create_task(delete_gcs_file(blob_name))
 
         return None
 
