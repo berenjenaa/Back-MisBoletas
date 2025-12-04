@@ -65,9 +65,9 @@ async def upload_documento(
         try:
             prod_response = (
                 supabase_admin.get_table("productos")
-                .select("id")
-                .eq("id", str(producto_id))
-                .eq("user_id", str(user_id))
+                .select("id_producto")
+                .eq("id_producto", str(producto_id))
+                .eq("id_usuario", str(user_id))
                 .single()
                 .execute()
             )
