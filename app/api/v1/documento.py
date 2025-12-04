@@ -90,12 +90,11 @@ async def upload_documento(
 
         # 3. Guardar documento en Supabase
         insert_data = {
-            "producto_id": str(producto_id),
+            "id_usuario": str(user_id),
             "nombre_archivo": upload_result["filename"],
             "url_gcs": upload_result.get("public_url", ""),
             "blob_name": upload_result.get("blob_name", ""),
             "content_type": upload_result.get("content_type", ""),
-            "size_bytes": upload_result.get("size_bytes", 0),
         }
 
         response = supabase_admin.get_table("documentos").insert(insert_data).execute()
@@ -114,6 +113,16 @@ async def upload_documento(
 
         documento = response.data[0]
 
+        # 3b. Crear relación en documento_productos
+        try:
+            relacion_data = {
+                "id_documento": str(documento["id_documento"]),
+                "id_producto": str(producto_id),
+            }
+            supabase_admin.get_table("documento_productos").insert(relacion_data).execute()
+        except Exception as e:
+            logger.warning(f"[WARNING] Failed to create documento_productos relation: {e}")
+
         # 4. Procesar OCR en BACKGROUND (no bloquea la respuesta HTTP)
         gcs_uri = upload_result.get("gcs_uri")  # gs://bucket/path
 
@@ -127,7 +136,7 @@ async def upload_documento(
             # Guardar estado_ocr como 'pendiente' antes de lanzar background task
             supabase_admin.get_table("documentos").update(
                 {"estado_ocr": "pendiente"}
-            ).eq("id", str(documento["id"])).execute()
+            ).eq("id_documento", str(documento["id_documento"])).execute()
 
             # Actualizar documento local con estado pendiente
             documento["estado_ocr"] = "pendiente"
@@ -135,11 +144,11 @@ async def upload_documento(
 
             # Lanzar OCR en background (no espera la respuesta)
             logger.info(
-                f"[INFO] Launching background OCR for document {documento['id']}"
+                f"[INFO] Launching background OCR for document {documento['id_documento']}"
             )
             asyncio.create_task(
                 background_process_ocr(
-                    documento_id=str(documento["id"]),
+                    documento_id=str(documento["id_documento"]),
                     gcs_uri=gcs_uri,
                     user_id=str(user_id),
                 )
@@ -171,10 +180,24 @@ async def get_documentos_by_producto(
 ):
     """Obtiene todos los documentos de un producto del usuario."""
     try:
+        # Obtener IDs de documentos a través de documento_productos
+        relaciones_response = (
+            supabase_admin.get_table("documento_productos")
+            .select("id_documento")
+            .eq("id_producto", str(producto_id))
+            .execute()
+        )
+        
+        documento_ids = [rel["id_documento"] for rel in relaciones_response.data or []]
+        
+        if not documento_ids:
+            return []
+        
+        # Obtener documentos
         response = (
             supabase_admin.get_table("documentos")
             .select("*")
-            .eq("producto_id", str(producto_id))
+            .in_("id_documento", documento_ids)
             .execute()
         )
 
@@ -206,8 +229,6 @@ async def get_documento(
             supabase_admin.get_table("documentos")
             .select("*")
             .eq("id_documento", str(documento_id))
-            .eq("id_usuario", str(user_id))
-            .is_("fecha_eliminacion", "null")
             .execute()
         )
 
@@ -264,7 +285,7 @@ async def get_signed_url(
         doc_response = (
             supabase_admin.get_table("documentos")
             .select("url_gcs, blob_name")
-            .eq("id", str(documento_id))
+            .eq("id_documento", str(documento_id))
             .single()
             .execute()
         )
@@ -343,7 +364,6 @@ async def delete_documento(
             supabase_admin.get_table("documentos")
             .select("*")
             .eq("id_documento", str(documento_id))
-            .eq("id_usuario", str(user_id))
             .single()
             .execute()
         )
@@ -358,6 +378,9 @@ async def delete_documento(
         supabase_admin.get_table("documentos").update(
             {"fecha_eliminacion": datetime.now(timezone.utc).isoformat()}
         ).eq("id_documento", str(documento_id)).execute()
+
+        # 3. Registrar documento_id para usar después
+        documento_id_to_delete = documento.get("id_documento") or documento_id
 
         logger.info(f"[OK] Document soft deleted: {documento_id}")
 
