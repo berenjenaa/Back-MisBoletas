@@ -291,6 +291,32 @@ async def delete_my_account(
 
 
 @router.get(
+    "/debug/validate-token",
+    summary="Debug: Validar token",
+)
+async def debug_validate_token(
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    DEBUG: Valida que el token es correcto.
+    Si ves este endpoint, el token es válido.
+    """
+    try:
+        logger.info(f"[DEBUG] Token validation successful for user: {user_id}")
+        return {
+            "status": "token_valid",
+            "user_id": user_id,
+            "message": "Token validado correctamente",
+        }
+    except Exception as e:
+        logger.error(f"[ERROR] Token validation failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido o expirado",
+        )
+
+
+@router.get(
     "/health",
     summary="Health check",
 )
