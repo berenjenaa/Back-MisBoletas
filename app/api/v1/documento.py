@@ -10,6 +10,8 @@ from app.schemas.documento import (
     DocumentoUploadResponse,
     DocumentoListItem,
     SignedUrlResponse,
+    DocumentoAssociateRequest,
+    DocumentoAssociateResponse,
 )
 from app.db.supabase import supabase_admin
 from app.core.dependencies import get_current_user_id, get_active_user_id
@@ -36,6 +38,7 @@ router = APIRouter(prefix="/documentos", tags=["documentos"])
 async def upload_documento(
     producto_id: UUID,
     file: UploadFile = File(...),
+    tipo_documento: str = "boleta",
     user_id: UUID = Depends(get_active_user_id),
 ):
     """
@@ -95,6 +98,7 @@ async def upload_documento(
             "url_gcs": upload_result.get("public_url", ""),
             "blob_name": upload_result.get("blob_name", ""),
             "content_type": upload_result.get("content_type", ""),
+            "tipo_documento": tipo_documento,
         }
 
         response = supabase_admin.get_table("documentos").insert(insert_data).execute()
@@ -119,15 +123,20 @@ async def upload_documento(
                 "id_documento": str(documento["id_documento"]),
                 "id_producto": str(producto_id),
             }
-            supabase_admin.get_table("documento_productos").insert(relacion_data).execute()
+            supabase_admin.get_table("documento_productos").insert(
+                relacion_data
+            ).execute()
         except Exception as e:
-            logger.warning(f"[WARNING] Failed to create documento_productos relation: {e}")
+            logger.warning(
+                f"[WARNING] Failed to create documento_productos relation: {e}"
+            )
 
-        # 4. Procesar OCR en BACKGROUND (no bloquea la respuesta HTTP)
+        # 4. Procesar OCR en BACKGROUND (solo para boletas)
         gcs_uri = upload_result.get("gcs_uri")  # gs://bucket/path
 
         if (
-            settings.DOCUMENTAI_PROJECT_ID
+            tipo_documento == "boleta"
+            and settings.DOCUMENTAI_PROJECT_ID
             and settings.DOCUMENTAI_PROCESSOR_ID
             and gcs_uri
             and file.content_type
@@ -187,12 +196,12 @@ async def get_documentos_by_producto(
             .eq("id_producto", str(producto_id))
             .execute()
         )
-        
+
         documento_ids = [rel["id_documento"] for rel in relaciones_response.data or []]
-        
+
         if not documento_ids:
             return []
-        
+
         # Obtener documentos
         response = (
             supabase_admin.get_table("documentos")
@@ -325,6 +334,103 @@ async def get_signed_url(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error generando URL. Por favor intenta más tarde.",
+        )
+
+
+@router.post(
+    "/associate",
+    response_model=DocumentoAssociateResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Asociar documento existente a producto",
+)
+async def associate_documento(
+    request: DocumentoAssociateRequest,
+    user_id: UUID = Depends(get_active_user_id),
+):
+    """
+    Asocia un documento existente a un producto sin subir archivo.
+    Úsese cuando quieras reutilizar una boleta para múltiples productos.
+    """
+    try:
+        # 1. Verificar que el documento existe y pertenece al usuario
+        doc_response = (
+            supabase_admin.get_table("documentos")
+            .select("*")
+            .eq("id_documento", str(request.id_documento))
+            .eq("id_usuario", str(user_id))
+            .single()
+            .execute()
+        )
+
+        if not doc_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Documento no encontrado",
+            )
+
+        documento = doc_response.data
+
+        # 2. Verificar que el producto pertenece al usuario
+        prod_response = (
+            supabase_admin.get_table("productos")
+            .select("id_producto")
+            .eq("id_producto", str(request.id_producto))
+            .eq("id_usuario", str(user_id))
+            .single()
+            .execute()
+        )
+
+        if not prod_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Producto no encontrado",
+            )
+
+        # 3. Crear relación en documento_productos
+        try:
+            relacion_data = {
+                "id_documento": str(request.id_documento),
+                "id_producto": str(request.id_producto),
+            }
+            rel_response = (
+                supabase_admin.get_table("documento_productos")
+                .insert(relacion_data)
+                .execute()
+            )
+
+            if not rel_response.data:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Error asociando documento a producto",
+                )
+
+            relacion = rel_response.data[0]
+
+        except Exception as e:
+            if "duplicate" in str(e).lower():
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Documento ya asociado a este producto",
+                )
+            logger.error(f"[ERROR] Failed to associate documento: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error asociando documento",
+            )
+
+        return DocumentoAssociateResponse(
+            message="Documento asociado exitosamente",
+            id_relacion=relacion["id_relacion"],
+            documento=DocumentoRead(**documento),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[ERROR] Error associating document: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error procesando asociación. Por favor intenta más tarde.",
         )
 
 
