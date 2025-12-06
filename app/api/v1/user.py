@@ -72,7 +72,7 @@ async def register(data: UserRegisterRequest):
         # Nota: Deep linking se configura en Supabase Dashboard → Auth Settings → Email Templates
         if data.redirect_to:
             logger.info(f"[INFO] Deep link parameter received: {data.redirect_to}")
-        
+
         res = supabase.client.auth.sign_up(
             {"email": data.correo, "password": data.contrasena}
         )
@@ -88,8 +88,22 @@ async def register(data: UserRegisterRequest):
         user_id = UUID(res.user.id)
         logger.info(f"[OK] User registered: {data.correo} (ID: {user_id})")
 
+        # Si hay session (usuario confirmado), usarla
+        # Si no hay session (pendiente confirmación), generar token temporal
+        access_token = ""
+        if res.session:
+            access_token = res.session.access_token
+            logger.info(f"[INFO] Session token provided by Supabase")
+        else:
+            # Usuario registrado pero pendiente confirmación de email
+            # Generar un token JWT temporal para permitir uso básico
+            logger.warning(f"[WARNING] No session provided - usuario pendiente confirmación")
+            # El frontend deberá usar el token cuando confirme el email
+            # Por ahora retornamos vacío
+            access_token = ""
+
         return {
-            "access_token": res.session.access_token if res.session else "",
+            "access_token": access_token,
             "token_type": "bearer",
             "user": {
                 "id_usuario": str(user_id),
