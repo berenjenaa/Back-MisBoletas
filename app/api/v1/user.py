@@ -67,11 +67,16 @@ async def register(data: UserRegisterRequest):
     - Retorna access_token para usar en otros endpoints
     """
     try:
+        # Log para debuggear el redirect_to
+        logger.info(f"[DEBUG] Datos recibidos: correo={data.correo}, redirect_to={data.redirect_to}")
+        
         # Registrar en Supabase Auth
         # El trigger on_auth_user_created se ejecutará automáticamente
         # Nota: Deep linking se configura en Supabase Dashboard → Auth Settings → Email Templates
         if data.redirect_to:
             logger.info(f"[INFO] Deep link parameter received: {data.redirect_to}")
+        else:
+            logger.warning("[WARNING] No redirect_to parameter provided")
 
         res = supabase.client.auth.sign_up(
             {"email": data.correo, "password": data.contrasena}
