@@ -126,16 +126,16 @@ async def create_ticket(
                 # Crear objeto de mensaje
                 message = MessageSchema(
                     subject=asunto_email,
-                    recipients=[
-                        settings.MAIL_FROM
-                    ],  # Enviar a la dirección configurada
+                    recipients=[email_usuario],  # Enviar confirmación al usuario
                     body=mensaje_html,
                     subtype=MessageType.html,
                 )
 
                 # Enviar email
                 await fast_mail.send_message(message)
-                logger.info(f"[INFO] Email sent for ticket {ticket['id_ticket']}")
+                logger.info(
+                    f"[INFO] Email sent for ticket {ticket['id_ticket']} to {email_usuario}"
+                )
             else:
                 logger.warning(
                     f"[WARNING] Email not configured - skipping notification for ticket {ticket['id_ticket']}"

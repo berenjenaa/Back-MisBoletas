@@ -20,6 +20,7 @@ async def get_products(
 ):
     """Obtiene todos los productos del usuario autenticado (sin eliminados)."""
     try:
+        # Paso 1: Obtener todos los productos
         response = (
             supabase_admin.get_table("productos")
             .select("*")
@@ -28,6 +29,34 @@ async def get_products(
             .execute()
         )
         productos = response.data or []
+
+        # Paso 2: Para cada producto, obtener sus categorías
+        for producto in productos:
+            try:
+                cat_response = (
+                    supabase_admin.get_table("producto_categorias")
+                    .select("id_categoria, categorias(id_categoria, nombre, color)")
+                    .eq("id_producto", str(producto["id_producto"]))
+                    .execute()
+                )
+                # Extraer solo las categorías (nested select)
+                categorias = []
+                if cat_response.data:
+                    for pc in cat_response.data:
+                        if pc.get("categorias"):
+                            # Si viene como objeto nested
+                            categorias.append(pc["categorias"])
+                        else:
+                            # Si viene como array
+                            categorias.extend(pc.get("categorias", []))
+
+                producto["categorias"] = categorias
+            except Exception as cat_error:
+                logger.warning(
+                    f"[WARNING] Failed to fetch categories for product {producto['id_producto']}: {cat_error}"
+                )
+                producto["categorias"] = []
+
         return [ProductRead(**p) for p in productos]
     except Exception as e:
         error_msg = str(e)
@@ -66,7 +95,31 @@ async def get_product(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado"
             )
-        return ProductRead(**response.data[0])
+
+        producto = response.data[0]
+
+        # Obtener categorías del producto
+        try:
+            cat_response = (
+                supabase_admin.get_table("producto_categorias")
+                .select("id_categoria, categorias(id_categoria, nombre, color)")
+                .eq("id_producto", str(product_id))
+                .execute()
+            )
+            categorias = []
+            if cat_response.data:
+                for pc in cat_response.data:
+                    if pc.get("categorias"):
+                        categorias.append(pc["categorias"])
+                    else:
+                        categorias.extend(pc.get("categorias", []))
+
+            producto["categorias"] = categorias
+        except Exception as cat_error:
+            logger.warning(f"[WARNING] Failed to fetch categories: {cat_error}")
+            producto["categorias"] = []
+
+        return ProductRead(**producto)
     except HTTPException:
         raise
     except Exception as e:

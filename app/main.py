@@ -23,7 +23,7 @@ from app.db.supabase import supabase_admin
 
 # --- 1. Función de inicialización ---
 def startup_event():
-    """Verifica la conexión con Supabase al iniciar."""
+    """Verifica la conexión con Supabase y la configuración de email al iniciar."""
     logging.info("[INFO] Starting MisBoletas API...")
     logging.info(f"[DEBUG] SUPABASE_URL configured: {bool(settings.SUPABASE_URL)}")
     logging.info(f"[DEBUG] SUPABASE_KEY configured: {bool(settings.SUPABASE_KEY)}")
@@ -48,6 +48,40 @@ def startup_event():
             logging.error(
                 "[❌ CRITICAL] SERVICE_ROLE_KEY missing in Render! All DB operations will fail!"
             )
+
+    # Verificar configuración de email (Resend)
+    logging.info("\n" + "=" * 60)
+    logging.info("EMAIL CONFIGURATION VERIFICATION")
+    logging.info("=" * 60)
+
+    if settings.MAIL_USERNAME and settings.MAIL_PASSWORD:
+        logging.info(f"[OK] MAIL_USERNAME: {settings.MAIL_USERNAME}")
+        logging.info(f"[OK] MAIL_FROM: {settings.MAIL_FROM}")
+        logging.info(f"[OK] MAIL_SERVER: {settings.MAIL_SERVER}")
+        logging.info(f"[OK] MAIL_PORT: {settings.MAIL_PORT}")
+        logging.info(f"[OK] MAIL_SSL_TLS: {settings.MAIL_SSL_TLS}")
+
+        # Validar que sea Resend + misboletas.tech
+        if (
+            settings.MAIL_USERNAME == "resend"
+            and settings.MAIL_SERVER == "smtp.resend.com"
+        ):
+            if settings.MAIL_FROM and "misboletas.tech" in settings.MAIL_FROM:
+                logging.info(
+                    "[✅ OK] Email configuration is valid for Resend + misboletas.tech domain"
+                )
+            else:
+                logging.warning(
+                    f"[⚠️ WARNING] MAIL_FROM domain mismatch. Expected misboletas.tech, got {settings.MAIL_FROM}"
+                )
+        else:
+            logging.warning("[⚠️ WARNING] Email provider might not be Resend")
+    else:
+        logging.warning(
+            "[⚠️ WARNING] Email credentials not configured - transactional emails disabled"
+        )
+
+    logging.info("=" * 60 + "\n")
 
     # Mensaje final con acceso a docs
     logging.info("[OK] Server ready - Access docs at: http://localhost:8080/docs")

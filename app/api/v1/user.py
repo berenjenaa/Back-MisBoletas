@@ -18,6 +18,7 @@ class UserRegisterRequest(BaseModel):
     correo: EmailStr
     contrasena: str
     nombre: Optional[str] = None
+    redirect_to: Optional[str] = None
 
 
 class UserLoginRequest(BaseModel):
@@ -68,8 +69,15 @@ async def register(data: UserRegisterRequest):
     try:
         # Registrar en Supabase Auth
         # El trigger on_auth_user_created se ejecutará automáticamente
+        # Preparar opciones para deep linking si está disponible
+        options = {}
+        if data.redirect_to:
+            options["email_redirect_to"] = data.redirect_to
+            logger.info(f"[INFO] Using redirect_to: {data.redirect_to}")
+
         res = supabase.client.auth.sign_up(
-            {"email": data.correo, "password": data.contrasena}
+            {"email": data.correo, "password": data.contrasena},
+            options=options if options else None,
         )
 
         if not res.user:

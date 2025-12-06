@@ -513,3 +513,177 @@ async def delete_documento(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error eliminando documento. Por favor intenta más tarde.",
         )
+
+
+# =======================================================================
+# === NUEVOS ENDPOINTS: DOCUMENTOS COMPARTIBLES
+# =======================================================================
+
+
+@router.get(
+    "/by-type/{tipo_documento}",
+    response_model=List[DocumentoListItem],
+    summary="Listar documentos del usuario por tipo",
+)
+async def get_documentos_by_type(
+    tipo_documento: str,
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """
+    Lista todos los documentos del usuario de un tipo específico.
+
+    Útil para reutilizar documentos (ej: boletas) en múltiples productos.
+
+    Args:
+        tipo_documento: 'boleta', 'garantia', 'manual', 'otro'
+        user_id: UUID del usuario autenticado
+
+    Returns:
+        Lista de documentos sin eliminados
+    """
+    try:
+        logger.info(f"[INFO] Fetching {tipo_documento} documents for user {user_id}")
+
+        response = (
+            supabase_admin.get_table("documentos")
+            .select(
+                "id_documento, nombrearchivo, tipo_documento, fecha_creacion, url_gcs, content_type"
+            )
+            .eq("id_usuario", str(user_id))
+            .eq("tipo_documento", tipo_documento)
+            .is_("fecha_eliminacion", "null")
+            .order("fecha_creacion", desc=True)
+            .execute()
+        )
+
+        documentos = response.data or []
+        logger.info(f"[INFO] Found {len(documentos)} {tipo_documento} documents")
+
+        return [DocumentoListItem(**doc) for doc in documentos]
+
+    except Exception as e:
+        logger.error(f"[ERROR] Failed to fetch documents by type: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al obtener documentos",
+        )
+
+
+@router.post(
+    "/associate-existing",
+    response_model=DocumentoAssociateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Asociar documento existente a un producto",
+)
+async def associate_existing_documento(
+    request: DocumentoAssociateRequest,
+    user_id: UUID = Depends(get_active_user_id),
+):
+    """
+    Asocia un documento existente a un producto sin duplicar archivos.
+
+    Útil cuando el usuario quiere reutilizar una boleta en múltiples productos.
+
+    Flujo:
+    1. Verifica que el documento pertenece al usuario
+    2. Verifica que el producto pertenece al usuario
+    3. Crea relación en documento_productos
+
+    Args:
+        request: {id_documento, id_producto}
+        user_id: UUID del usuario autenticado
+
+    Returns:
+        Información de la asociación creada
+    """
+    try:
+        logger.info(
+            f"[INFO] Associating document {request.id_documento} to product {request.id_producto}"
+        )
+
+        # 1. Verificar que el documento existe y pertenece al usuario
+        doc_response = (
+            supabase_admin.get_table("documentos")
+            .select("id_documento, nombrearchivo, tipo_documento")
+            .eq("id_documento", str(request.id_documento))
+            .eq("id_usuario", str(user_id))
+            .is_("fecha_eliminacion", "null")
+            .execute()
+        )
+
+        if not doc_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Documento no encontrado"
+            )
+
+        documento = doc_response.data[0]
+
+        # 2. Verificar que el producto existe y pertenece al usuario
+        prod_response = (
+            supabase_admin.get_table("productos")
+            .select("id_producto, nombre")
+            .eq("id_producto", str(request.id_producto))
+            .eq("id_usuario", str(user_id))
+            .is_("fecha_eliminacion", "null")
+            .execute()
+        )
+
+        if not prod_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Producto no encontrado"
+            )
+
+        producto = prod_response.data[0]
+
+        # 3. Verificar que no existe ya la relación
+        existing = (
+            supabase_admin.get_table("documento_productos")
+            .select("id_documento")
+            .eq("id_documento", str(request.id_documento))
+            .eq("id_producto", str(request.id_producto))
+            .execute()
+        )
+
+        if existing.data:
+            logger.warning(f"[WARNING] Relationship already exists")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Este documento ya está asociado al producto",
+            )
+
+        # 4. Crear la relación
+        relation_response = (
+            supabase_admin.get_table("documento_productos")
+            .insert(
+                {
+                    "id_documento": str(request.id_documento),
+                    "id_producto": str(request.id_producto),
+                }
+            )
+            .execute()
+        )
+
+        if not relation_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Error al asociar documento",
+            )
+
+        logger.info(f"[INFO] Document associated successfully")
+
+        return DocumentoAssociateResponse(
+            id_documento=request.id_documento,
+            id_producto=request.id_producto,
+            nombrearchivo=documento["nombrearchivo"],
+            tipo_documento=documento["tipo_documento"],
+            mensaje="Documento asociado exitosamente",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[ERROR] Failed to associate document: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al asociar documento",
+        )

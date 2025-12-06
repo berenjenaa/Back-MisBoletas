@@ -237,7 +237,7 @@ async def background_process_ocr(documento_id: str, gcs_uri: str, user_id: str) 
         # 1. Marcar como procesando
         logger.info(f"[BACKGROUND] Starting OCR processing for document {documento_id}")
         supabase_admin.get_table("documentos").update({"estado_ocr": "procesando"}).eq(
-            "id", documento_id
+            "id_documento", documento_id
         ).execute()
 
         # 2. Procesar OCR
@@ -250,7 +250,7 @@ async def background_process_ocr(documento_id: str, gcs_uri: str, user_id: str) 
                 "estado_ocr": "completado",
                 "error_ocr": None,
             }
-        ).eq("id", documento_id).execute()
+        ).eq("id_documento", documento_id).execute()
 
         logger.info(
             f"[BACKGROUND] OCR completed successfully for document {documento_id}"
@@ -267,7 +267,7 @@ async def background_process_ocr(documento_id: str, gcs_uri: str, user_id: str) 
         try:
             supabase_admin.get_table("documentos").update(
                 {"estado_ocr": "error", "error_ocr": error_msg}
-            ).eq("id", documento_id).execute()
+            ).eq("id_documento", documento_id).execute()
         except Exception as db_error:
             logger.error(
                 f"[BACKGROUND] Failed to update error state: {db_error}",

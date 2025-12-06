@@ -59,24 +59,11 @@ class DocumentoListItem(BaseModel):
     """Schema simplificado para listar documentos."""
 
     id_documento: UUID
-    id_usuario: UUID
-    nombre_archivo: str
-    url_gcs: str
-    blob_name: str
+    nombrearchivo: str
+    tipo_documento: Optional[str] = None
+    fecha_creacion: Optional[datetime] = None
+    url_gcs: Optional[str] = None
     content_type: Optional[str] = None
-    tipo_documento: Optional[str] = (
-        None  # 'boleta', 'factura', 'garantia', 'manual', 'otro'
-    )
-    metadata_ocr: Optional[Dict[str, Any]] = None  # OCR summary
-    estado_ocr: Optional[str] = (
-        None  # 'pendiente' | 'procesando' | 'completado' | 'error'
-    )
-    error_ocr: Optional[str] = None
-    numero_boleta: Optional[str] = None
-    fecha_emision: Optional[date] = None
-    duracion_garantia_especifica: Optional[int] = None
-    fecha_subida: Optional[datetime] = None
-    fecha_eliminacion: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -103,9 +90,13 @@ class DocumentoAssociateRequest(BaseModel):
 class DocumentoAssociateResponse(BaseModel):
     """Response al asociar documento a producto."""
 
-    message: str
-    id_relacion: UUID
-    documento: DocumentoRead
+    id_documento: UUID
+    id_producto: UUID
+    nombrearchivo: str
+    tipo_documento: str
+    mensaje: str
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ===== SCHEMA PARA OCR RESULTADO =====
