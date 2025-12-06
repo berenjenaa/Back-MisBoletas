@@ -61,7 +61,6 @@ class Settings(BaseSettings):
     MAIL_SERVER: str = "smtp.gmail.com"  # Servidor SMTP de Gmail
     MAIL_STARTTLS: bool = True  # Usar STARTTLS para conexión segura
     MAIL_SSL_TLS: bool = False  # No usar SSL directo (usa STARTTLS)
-    MAIL_USE_CREDENTIALS: bool = True  # Usar credenciales para autenticación
 
     @property
     def is_production(self) -> bool:

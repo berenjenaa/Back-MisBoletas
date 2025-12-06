@@ -1,7 +1,8 @@
 """
 Configuración de FastAPI-Mail para envío de emails.
 
-Inicializa el cliente de correo con las credenciales de Gmail.
+Inicializa el cliente de correo con las credenciales de Gmail/Resend.
+Compatible con Pydantic v2 y fastapi-mail.
 """
 
 from fastapi_mail import FastMail, ConnectionConfig, MessageSchema, MessageType
@@ -21,21 +22,38 @@ fast_mail: Optional[FastMail] = None
 
 if settings.MAIL_USERNAME and settings.MAIL_PASSWORD:
     try:
+        logger.info(
+            f"[DEBUG] Initializing email with MAIL_USERNAME={settings.MAIL_USERNAME}"
+        )
+        logger.info(f"[DEBUG] MAIL_FROM={settings.MAIL_FROM}")
+        logger.info(f"[DEBUG] MAIL_SERVER={settings.MAIL_SERVER}:{settings.MAIL_PORT}")
+
+        # ConnectionConfig espera campos en MAYÚSCULAS (hereda de BaseSettings)
+        # Los campos válidos son: MAIL_USERNAME, MAIL_PASSWORD, MAIL_PORT, MAIL_SERVER,
+        # MAIL_STARTTLS, MAIL_SSL_TLS, MAIL_FROM, USE_CREDENTIALS, etc.
         email_config = ConnectionConfig(
-            mail_username=settings.MAIL_USERNAME,
-            mail_password=settings.MAIL_PASSWORD,
-            mail_from=settings.MAIL_FROM or settings.MAIL_USERNAME,
-            mail_port=settings.MAIL_PORT,
-            mail_server=settings.MAIL_SERVER,
-            mail_starttls=settings.MAIL_STARTTLS,
-            mail_ssl_tls=settings.MAIL_SSL_TLS,
-            use_credentials=settings.MAIL_USE_CREDENTIALS,
+            MAIL_USERNAME=settings.MAIL_USERNAME,
+            MAIL_PASSWORD=settings.MAIL_PASSWORD,
+            MAIL_FROM=settings.MAIL_FROM or settings.MAIL_USERNAME,
+            MAIL_PORT=settings.MAIL_PORT,
+            MAIL_SERVER=settings.MAIL_SERVER,
+            MAIL_STARTTLS=settings.MAIL_STARTTLS,
+            MAIL_SSL_TLS=settings.MAIL_SSL_TLS,
+            USE_CREDENTIALS=True,  # Usar credenciales para autenticación
         )
         fast_mail = FastMail(email_config)
+        logger.info("[✅ OK] Email configuration initialized successfully")
         print("[OK] Email configuration initialized successfully")
     except Exception as e:
+        logger.error(f"[❌ ERROR] Email configuration failed: {type(e).__name__}")
+        logger.error(f"[❌ ERROR] Details: {str(e)}")
         print(f"[WARNING] Email configuration failed: {e}")
+        email_config = None
+        fast_mail = None
 else:
+    logger.warning(
+        "[⚠️ WARNING] Email credentials not configured - email functionality disabled"
+    )
     print("[WARNING] Email credentials not configured - email functionality disabled")
 
 

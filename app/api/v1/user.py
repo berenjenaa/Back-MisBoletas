@@ -97,7 +97,9 @@ async def register(data: UserRegisterRequest):
         else:
             # Usuario registrado pero pendiente confirmación de email
             # Generar un token JWT temporal para permitir uso básico
-            logger.warning(f"[WARNING] No session provided - usuario pendiente confirmación")
+            logger.warning(
+                f"[WARNING] No session provided - usuario pendiente confirmación"
+            )
             # El frontend deberá usar el token cuando confirme el email
             # Por ahora retornamos vacío
             access_token = ""

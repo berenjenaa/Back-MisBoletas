@@ -21,7 +21,7 @@ except Exception as e:
 
 print()
 
-# Test 2: Check perfiles table  
+# Test 2: Check perfiles table
 try:
     print("2. Querying perfiles table...")
     response = supabase.table("perfiles").select("*").limit(1).execute()
