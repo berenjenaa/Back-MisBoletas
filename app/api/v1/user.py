@@ -69,15 +69,12 @@ async def register(data: UserRegisterRequest):
     try:
         # Registrar en Supabase Auth
         # El trigger on_auth_user_created se ejecutará automáticamente
-        # Preparar opciones para deep linking si está disponible
-        options = {}
+        # Nota: Deep linking se configura en Supabase Dashboard → Auth Settings → Email Templates
         if data.redirect_to:
-            options["email_redirect_to"] = data.redirect_to
-            logger.info(f"[INFO] Using redirect_to: {data.redirect_to}")
-
+            logger.info(f"[INFO] Deep link parameter received: {data.redirect_to}")
+        
         res = supabase.client.auth.sign_up(
-            {"email": data.correo, "password": data.contrasena},
-            options=options if options else None,
+            {"email": data.correo, "password": data.contrasena}
         )
 
         if not res.user:
