@@ -78,28 +78,42 @@ async def register(data: UserRegisterRequest):
             f"[DEBUG] Datos recibidos: correo={data.correo}, redirect_to={data.redirect_to}"
         )
 
-        # Registrar en Supabase Auth
-        # El trigger on_auth_user_created se ejecutará automáticamente
-        # Nota: Deep linking se configura en Supabase Dashboard → Auth Settings → Email Templates
-        if data.redirect_to:
-            logger.info(f"[INFO] Deep link parameter received: {data.redirect_to}")
-        else:
-            logger.warning("[WARNING] No redirect_to parameter provided")
+        # Preparar opciones de autenticación para Supabase
+        auth_options = {"data": {"full_name": data.nombre or data.correo.split("@")[0]}}
 
+        # ✅ IMPORTANTE: Pasar redirect_to a Supabase si está disponible
+        # Esto hará que Supabase use este URL en el email de confirmación
+        # en lugar de usar la Site URL por defecto
+        if data.redirect_to:
+            auth_options["email_redirect_to"] = data.redirect_to
+            logger.info(
+                f"[INFO] ✅ Redirect URL enviada a Supabase: {data.redirect_to}"
+            )
+        else:
+            logger.warning(
+                "[WARNING] ⚠️ No redirect_to provided - usará Site URL por defecto"
+            )
+
+        # Registrar en Supabase Auth con opciones
+        # El trigger on_auth_user_created se ejecutará automáticamente
         res = supabase.client.auth.sign_up(
-            {"email": data.correo, "password": data.contrasena}
+            {
+                "email": data.correo,
+                "password": data.contrasena,
+                "options": auth_options,  # ✅ ESTO ES LO CRUCIAL
+            }
         )
 
         if not res.user:
             error_msg = str(res) if res else "Unknown error"
-            logger.error(f"[ERROR] Supabase signup failed: {error_msg}")
+            logger.error(f"[ERROR] ❌ Supabase signup failed: {error_msg}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Registration failed: {error_msg}",
             )
 
         user_id = UUID(res.user.id)
-        logger.info(f"[OK] User registered: {data.correo} (ID: {user_id})")
+        logger.info(f"[OK] ✅ User registered: {data.correo} (ID: {user_id})")
 
         # Si hay session (usuario confirmado), usarla
         # Si no hay session (pendiente confirmación), generar token temporal
@@ -109,12 +123,10 @@ async def register(data: UserRegisterRequest):
             logger.info(f"[INFO] Session token provided by Supabase")
         else:
             # Usuario registrado pero pendiente confirmación de email
-            # Generar un token JWT temporal para permitir uso básico
+            # El frontend deberá usar el token OTP cuando confirme el email
             logger.warning(
-                f"[WARNING] No session provided - usuario pendiente confirmación"
+                f"[WARNING] ⏳ Pending email confirmation - usuario: {data.correo}"
             )
-            # El frontend deberá usar el token cuando confirme el email
-            # Por ahora retornamos vacío
             access_token = ""
 
         return {
