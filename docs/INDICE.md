@@ -1,31 +1,31 @@
-﻿# Documentacion API MisBoletas
+﻿# Índice - Guía Rápida
 
-## Inicio Rapido
+**→ Comienza con [README.md](README.md) o [INICIO_RAPIDO.md](INICIO_RAPIDO.md)**
 
-Para empezar, abre INICIO_RAPIDO.md - Tiene 5 pasos basicos para probar la API.
+## 📖 Módulos
 
-## Modulos de la API
+| Módulo         | Descripción                    | Archivo                                |
+| -------------- | ------------------------------ | -------------------------------------- |
+| Autenticación  | Login, registro, 2FA, recovery | [USUARIOS.md](USUARIOS.md)             |
+| Productos      | CRUD de productos              | [PRODUCTOS.md](PRODUCTOS.md)           |
+| Categorías     | Organizar productos            | [CATEGORIAS.md](CATEGORIAS.md)         |
+| Documentos     | Subida, OCR, descarga          | [DOCUMENTOS.md](DOCUMENTOS.md)         |
+| FAQs           | Preguntas frecuentes           | [FAQS.md](FAQS.md)                     |
+| Organizaciones | Espacios compartidos           | [ORGANIZACIONES.md](ORGANIZACIONES.md) |
+| Recuperación   | Password reset                 | [RECOVERY.md](RECOVERY.md)             |
 
-Cada modulo tiene su documentacion completa con ejemplos:
+## ⚙️ Recursos
 
-- USUARIOS.md          - Registro, login, perfiles
-- PRODUCTOS.md         - Crear y gestionar productos
-- DOCUMENTOS.md        - Subir archivos y OCR
-- CATEGORIAS.md        - Organizar productos
+| Recurso      | URL     |
+| ------------ | ------- |
+| API Base     | /api/v1 |
+| Swagger Docs | /docs   |
+| ReDoc        | /redoc  |
 
-## Referencias
+## 📚 Referencias
 
-- ARQUITECTURA.md      - Stack tecnologico, base de datos, flujo general
-- INICIO_RAPIDO.md     - 5 pasos para probar
+- [README.md](README.md) - Navegación principal
+- [INICIO_RAPIDO.md](INICIO_RAPIDO.md) - 5 pasos
+- [ARQUITECTURA.md](ARQUITECTURA.md) - Stack técnico
 
-## Informacion General
-
-Base URL: http://localhost:8080/api/v1
-Documentacion interactiva: http://localhost:8080/docs
-
-## Estado
-
-Backend completamente funcional.
-Todos los endpoints operativos.
-OCR y GCS integrados.
-Listo para produccion.
+**Documentación extendida:** Archivos con sufijo `_FULL.md`

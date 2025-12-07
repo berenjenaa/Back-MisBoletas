@@ -1,12 +1,54 @@
-﻿# Documentacion del Backend MisBoletas
+﻿# Documentación API MisBoletas - Guía Principal
 
-Esta carpeta contiene la documentacion completa de la API.
+Esta carpeta contiene la documentación completa de la API.
 
-## Por donde empezar
+## 📚 Primeros Pasos
 
-1. Lee INDICE.md - Indice general
-2. Lee INICIO_RAPIDO.md - 5 pasos para probar
-3. Consulta los modulos individuales segun necesites
+1. **[INICIO_RAPIDO.md](INICIO_RAPIDO.md)** - 5 pasos para probar
+2. **[ARQUITECTURA.md](ARQUITECTURA.md)** - Stack y estructura
+3. **Módulos específicos** - Según tu necesidad
+
+## 📦 Módulos de la API
+
+| Módulo             | Descripción                                 | Archivo                                |
+| ------------------ | ------------------------------------------- | -------------------------------------- |
+| **Usuarios**       | Registro, login, recuperación de contraseña | [USUARIOS.md](USUARIOS.md)             |
+| **Productos**      | CRUD de productos                           | [PRODUCTOS.md](PRODUCTOS.md)           |
+| **Categorías**     | Organizar productos                         | [CATEGORIAS.md](CATEGORIAS.md)         |
+| **Documentos**     | Subir archivos y OCR                        | [DOCUMENTOS.md](DOCUMENTOS.md)         |
+| **FAQs**           | Preguntas frecuentes                        | [FAQS.md](FAQS.md)                     |
+| **Organizaciones** | Espacios compartidos                        | [ORGANIZACIONES.md](ORGANIZACIONES.md) |
+| **Tickets**        | Sistema de soporte                          | [TICKETS.md](TICKETS.md)               |
+
+## 🌐 Acceso
+
+**Base URL:**
+
+- Desarrollo: `http://localhost:8080/api/v1`
+- Producción: `https://api.misboletas.tech/api/v1`
+
+**Documentación Interactiva:**
+
+- `/docs` - Swagger UI
+- `/redoc` - ReDoc
+
+## 🔐 Autenticación
+
+Endpoints protegidos requieren:
+
+```
+Authorization: Bearer {access_token}
+```
+
+## ✅ Estado
+
+- Completamente operativo
+- Todos los endpoints implementados
+- Listo para producción
+
+---
+
+**Última actualización:** 7 de Diciembre de 2025
 
 ## Archivos Disponibles
 

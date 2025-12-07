@@ -1,67 +1,56 @@
-﻿# Arquitectura - Backend MisBoletas
+# Arquitectura - Backend MisBoletas
 
-## Stack Tecnologico
+## 📚 Stack
 
-FastAPI 0.116.1
-Supabase 2.10.0 (Base de datos + Autenticacion)
-Google Cloud Storage (Almacenamiento de archivos)
-Google Document AI (OCR)
-Uvicorn (Servidor ASGI)
+| Componente | Versión              |
+| ---------- | -------------------- |
+| FastAPI    | 0.116.1              |
+| Supabase   | 2.10.0               |
+| GCS        | Google Cloud Storage |
+| OCR        | Google Document AI   |
 
-## Estructura del Proyecto
+## 🏗️ Estructura
 
+```
 Back-MisBoletas/
-app/
-api/v1/ - Endpoints (usuarios, productos, documentos, categorias)
-core/ - Configuracion y autenticacion
-services/ - Servicios GCS y OCR
-schemas/ - Modelos de datos Pydantic
-db/ - Conexion a base de datos
+├── app/
+│   ├── api/v1/          # Endpoints
+│   ├── core/            # Config & Auth
+│   ├── services/        # GCS, OCR
+│   ├── schemas/         # Modelos Pydantic
+│   └── db/              # Supabase
+```
 
-## Google Cloud Storage
+## 🔐 Autenticación
 
-Bucket: misboletas-bucket
-Estructura: /user*{uuid}/product*{uuid}/archivo.pdf
-URLs firmadas: Validas por 24 horas
-OCR: Procesado por Google Document AI
+- **Proveedor:** Supabase Auth (JWT)
+- **Público:** POST /users/register, POST /users/login
+- **Protegido:** Requiere `Authorization: Bearer {token}`
+- **Vigencia:** 1 hora
 
-## Autenticacion
+## 🌐 Almacenamiento
 
-Supabase Auth con JWT tokens
+- **Bucket:** misboletas-bucket (GCS)
+- **Estructura:** `/user-{uuid}/product-{uuid}/file.pdf`
+- **URLs:** Firmadas (válidas 24h)
+- **OCR:** Procesado automáticamente al subir
 
-POST /users/register - Crear cuenta (publico)
-POST /users/login - Iniciar sesion (publico)
-Otros endpoints - Requieren Bearer token
+## 📄 Flujo de Documento
 
-Header: Authorization: Bearer {access_token}
-Vigencia: 1 hora
+1. Upload → GCS + metadata en DB
+2. OCR inicia en background
+3. Datos extraídos → metadata_ocr
+4. Cliente obtiene vía GET /documentos/{id}
 
-## Flujo de Datos
+## 🔒 Seguridad
 
-1. Usuario registra cuenta -> Supabase Auth + Perfil creado
-2. Usuario inicia sesion -> Obtiene JWT token
-3. Usuario crea producto -> Se guarda en base de datos
-4. Usuario sube documento -> Se sube a GCS y OCR procesa automaticamente
-5. Usuario obtiene resultado -> Datos extraidos en metadata_ocr
+✅ JWT autenticación  
+✅ Row-Level Security  
+✅ URLs firmadas (24h)  
+✅ Validación de propiedad  
+✅ HTTPS / TLS  
+✅ Datos encriptados en tránsito
 
-## OCR - Procesamiento Automatico
+---
 
-El OCR se ejecuta automaticamente al subir documentos.
-No hay endpoint separado de OCR.
-Los datos extraidos se guardan en el campo metadata_ocr del documento.
-
-## Seguridad
-
-- Autenticacion JWT via Supabase
-- Bearer token authentication
-- Row-Level Security en base de datos
-- URLs firmadas para descargas (24 horas)
-- Validacion de propiedad en cambios
-- HTTPS en todas las comunicaciones
-- Datos encriptados en transito
-
-## Estado
-
-Backend completamente funcional.
-Todos los endpoints operativos.
-OCR y GCS integrados.
+**Env:** Desarrollo, Render (Producción)
