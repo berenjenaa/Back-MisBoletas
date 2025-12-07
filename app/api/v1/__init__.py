@@ -12,6 +12,7 @@ from . import (
     alerts,
     admin_gcs,
     webhooks,
+    faqs,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "alerts",
     "admin_gcs",
     "webhooks",
+    "faqs",
 ]
