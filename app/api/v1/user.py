@@ -74,26 +74,20 @@ async def register(data: UserRegisterRequest):
     - Retorna access_token para usar en otros endpoints
     """
     try:
-        # Log para debuggear el redirect_to
-        logger.info(
-            f"[DEBUG] Datos recibidos: correo={data.correo}, redirect_to={data.redirect_to}"
-        )
+        # Log para auditoría (sin exponer datos sensibles)
+        logger.info("[AUTH] Registro iniciado")
+
+        # ✅ URL DEL PUENTE (DEFINITIVA Y PROFESIONAL)
+        # Este es el endpoint que verifica el OTP y abre la app
+        puente_url = "https://api.misboletas.tech/api/v1/users/confirm"
 
         # Preparar opciones de autenticación para Supabase
-        auth_options = {"data": {"full_name": data.nombre or data.correo.split("@")[0]}}
+        auth_options = {
+            "data": {"full_name": data.nombre or data.correo.split("@")[0]},
+            "email_redirect_to": puente_url,  # ✅ SIEMPRE USAR EL PUENTE
+        }
 
-        # ✅ IMPORTANTE: Pasar redirect_to a Supabase si está disponible
-        # Esto hará que Supabase use este URL en el email de confirmación
-        # en lugar de usar la Site URL por defecto
-        if data.redirect_to:
-            auth_options["email_redirect_to"] = data.redirect_to
-            logger.info(
-                f"[INFO] ✅ Redirect URL enviada a Supabase: {data.redirect_to}"
-            )
-        else:
-            logger.warning(
-                "[WARNING] ⚠️ No redirect_to provided - usará Site URL por defecto"
-            )
+        logger.info("[AUTH] Email de confirmación configurado")
 
         # Registrar en Supabase Auth con opciones
         # El trigger on_auth_user_created se ejecutará automáticamente
@@ -107,27 +101,25 @@ async def register(data: UserRegisterRequest):
 
         if not res.user:
             error_msg = str(res) if res else "Unknown error"
-            logger.error(f"[ERROR] ❌ Supabase signup failed: {error_msg}")
+            logger.error("[AUTH] Fallo en registro de usuario")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Registration failed: {error_msg}",
             )
 
         user_id = UUID(res.user.id)
-        logger.info(f"[OK] ✅ User registered: {data.correo} (ID: {user_id})")
+        logger.info("[AUTH] ✅ Usuario registrado exitosamente")
 
         # Si hay session (usuario confirmado), usarla
         # Si no hay session (pendiente confirmación), generar token temporal
         access_token = ""
         if res.session:
             access_token = res.session.access_token
-            logger.info(f"[INFO] Session token provided by Supabase")
+            logger.info("[AUTH] Sesión activa proporcionada")
         else:
             # Usuario registrado pero pendiente confirmación de email
             # El frontend deberá usar el token OTP cuando confirme el email
-            logger.warning(
-                f"[WARNING] ⏳ Pending email confirmation - usuario: {data.correo}"
-            )
+            logger.info("[AUTH] ⏳ Registro pendiente de confirmación de email")
             access_token = ""
 
         return {
@@ -144,7 +136,7 @@ async def register(data: UserRegisterRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[ERROR] Registration failed: {str(e)}")
+        logger.error("[AUTH] Error en registro de usuario")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Error al registrarse. Por favor intenta más tarde.",
