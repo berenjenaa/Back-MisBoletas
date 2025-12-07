@@ -26,6 +26,12 @@ class UserLoginRequest(BaseModel):
     contrasena: str
 
 
+class VerifyOTPRequest(BaseModel):
+    email: EmailStr
+    token: str
+    type: str  # 'signup' o 'recovery'
+
+
 class UserAuthResponse(BaseModel):
     access_token: str
     token_type: str
@@ -68,8 +74,10 @@ async def register(data: UserRegisterRequest):
     """
     try:
         # Log para debuggear el redirect_to
-        logger.info(f"[DEBUG] Datos recibidos: correo={data.correo}, redirect_to={data.redirect_to}")
-        
+        logger.info(
+            f"[DEBUG] Datos recibidos: correo={data.correo}, redirect_to={data.redirect_to}"
+        )
+
         # Registrar en Supabase Auth
         # El trigger on_auth_user_created se ejecutará automáticamente
         # Nota: Deep linking se configura en Supabase Dashboard → Auth Settings → Email Templates
@@ -178,6 +186,62 @@ async def login(data: UserLoginRequest):
         logger.error(f"[ERROR] Login failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas."
+        )
+
+
+@router.post(
+    "/verify-otp",
+    response_model=UserAuthResponse,
+    summary="Verificar OTP desde deep link de email",
+)
+async def verify_otp(data: VerifyOTPRequest):
+    """
+    Verifica un token OTP recibido desde un deep link en email.
+
+    - Valida el token OTP con Supabase
+    - Retorna access_token si es válido
+    - Crea la sesión del usuario
+    """
+    try:
+        logger.info(f"[DEBUG] Verificando OTP para: {data.email}, type={data.type}")
+
+        # Verificar el OTP con Supabase
+        res = supabase.client.auth.verify_otp(
+            {
+                "email": data.email,
+                "token": data.token,
+                "type": data.type,  # 'signup' o 'recovery'
+            }
+        )
+
+        if not res.user or not res.session:
+            logger.error(f"[ERROR] OTP verification failed for {data.email}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token inválido o expirado",
+            )
+
+        user_id = UUID(res.user.id)
+        logger.info(f"[OK] OTP verified for {data.email}, user: {user_id}")
+
+        return {
+            "access_token": res.session.access_token,
+            "token_type": "bearer",
+            "user": {
+                "id_usuario": str(user_id),
+                "email": data.email,
+                "nombre_completo": data.email.split("@")[0],
+                "fecha_registro": datetime.now().isoformat(),
+            },
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[ERROR] OTP verification failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Error al verificar el token. Por favor intenta nuevamente.",
         )
 
 
