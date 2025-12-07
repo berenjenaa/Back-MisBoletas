@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from uuid import UUID
@@ -255,6 +256,65 @@ async def verify_otp(data: VerifyOTPRequest):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Error al verificar el token. Por favor intenta nuevamente.",
         )
+
+
+@router.get(
+    "/confirm",
+    summary="Puente para confirmar email desde enlaces",
+)
+async def confirm_email(token: str, email: str, type: str = "signup"):
+    """
+    🌉 PUENTE: Endpoint que actúa como intermediario entre el email y la app.
+    
+    FLUJO:
+    1. Email contiene: https://api.misboletas.tech/users/confirm?token=XXX&email=YYY&type=signup
+    2. Usuario hace click → Llama este endpoint
+    3. Este endpoint:
+       - Verifica el OTP con Supabase
+       - Si es válido → Redirige a: misboletas://auth-callback?token=XXX&email=YYY&type=signup
+       - Si es inválido → Muestra error amigable
+    
+    VENTAJAS:
+    - El link siempre funciona (usa https, no deep link)
+    - Si la app no está instalada, muestra error legible
+    - Si la app está instalada, abre automáticamente
+    - Funciona en emails, SMS, cualquier lado
+    """
+    try:
+        logger.info(f"[🌉 PUENTE] Confirm endpoint called: email={email}, type={type}")
+        
+        # Verificar el OTP con Supabase
+        res = supabase.client.auth.verify_otp(
+            {
+                "email": email,
+                "token": token,
+                "type": type,
+            }
+        )
+
+        if not res.user or not res.session:
+            logger.error(f"[ERROR] OTP verification failed for {email}")
+            return {
+                "error": "Token inválido o expirado",
+                "deep_link": f"misboletas://auth-callback?token={token}&email={email}&type={type}&error=invalid_token"
+            }
+
+        user_id = UUID(res.user.id)
+        logger.info(f"[✅ PUENTE] OTP verified, user: {user_id}")
+
+        # ✅ REDIRIGIR A LA APP CON DEEP LINK
+        # El navegador abrirá la app automáticamente
+        deep_link = f"misboletas://auth-callback?token={token}&email={email}&type={type}"
+        logger.info(f"[🔗 PUENTE] Redirecting to: {deep_link}")
+        
+        return RedirectResponse(url=deep_link, status_code=302)
+
+    except Exception as e:
+        logger.error(f"[ERROR] Confirm endpoint failed: {str(e)}")
+        return {
+            "error": "Error al procesar la confirmación",
+            "message": str(e)
+        }
 
 
 # =======================================================================
