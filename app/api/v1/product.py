@@ -1,6 +1,6 @@
 # En app/api/v1/product.py
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import List
 from uuid import UUID
 import logging
@@ -11,23 +11,53 @@ from app.core.dependencies import get_current_user_id, get_active_user_id
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/productos", tags=["productos"])
+router = APIRouter(prefix="/productos")
 
 
 @router.get("", response_model=List[ProductRead], summary="Listar mis productos")
 async def get_products(
     user_id: UUID = Depends(get_current_user_id),
+    categoria: str = Query(None, description="Filtrar por categoria ID (UUID)"),
 ):
-    """Obtiene todos los productos del usuario autenticado (sin eliminados)."""
+    """Obtiene los productos del usuario autenticado, opcionalmente filtrados por categoría."""
     try:
-        # Paso 1: Obtener todos los productos
-        response = (
-            supabase_admin.get_table("productos")
-            .select("*")
-            .eq("id_usuario", str(user_id))
-            .is_("fecha_eliminacion", "null")
-            .execute()
-        )
+        # Paso 1: Obtener productos
+        if categoria:
+            # Si se proporciona un ID de categoría, filtrar por esa categoría
+            cat_response = (
+                supabase_admin.get_table("producto_categorias")
+                .select("id_producto")
+                .eq("id_categoria", categoria)
+                .execute()
+            )
+            producto_ids = (
+                [pc["id_producto"] for pc in cat_response.data]
+                if cat_response.data
+                else []
+            )
+
+            if not producto_ids:
+                return []
+
+            # Obtener esos productos específicos
+            response = (
+                supabase_admin.get_table("productos")
+                .select("*")
+                .eq("id_usuario", str(user_id))
+                .is_("fecha_eliminacion", "null")
+                .in_("id_producto", producto_ids)
+                .execute()
+            )
+        else:
+            # Si no hay filtro, obtener todos
+            response = (
+                supabase_admin.get_table("productos")
+                .select("*")
+                .eq("id_usuario", str(user_id))
+                .is_("fecha_eliminacion", "null")
+                .execute()
+            )
+
         productos = response.data or []
 
         # Paso 2: Para cada producto, obtener sus categorías

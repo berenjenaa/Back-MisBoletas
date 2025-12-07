@@ -20,7 +20,7 @@ from app.core.dependencies import CurrentUser
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/tickets", tags=["tickets"])
+router = APIRouter(prefix="/tickets")
 
 
 # =======================================================================

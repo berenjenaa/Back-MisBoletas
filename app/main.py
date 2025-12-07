@@ -118,6 +118,10 @@ tags_metadata = [
         "name": "Tickets",
         "description": "Gestión de tickets de soporte técnico.",
     },
+    {
+        "name": "FAQs",
+        "description": "Preguntas frecuentes públicas. No requiere autenticación.",
+    },
 ]
 
 # --- 3. Descripción detallada para /docs ---

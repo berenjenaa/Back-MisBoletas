@@ -5,7 +5,7 @@ import logging
 from app.schemas.faqs import FAQRead, FAQCreate
 from app.db.supabase import supabase_admin
 
-router = APIRouter(prefix="/faqs", tags=["faqs"])
+router = APIRouter(prefix="/faqs")
 logger = logging.getLogger(__name__)
 
 

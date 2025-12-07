@@ -11,7 +11,7 @@ from app.core.dependencies import get_current_user_id, get_active_user_id
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/users", tags=["usuarios"])
+router = APIRouter(prefix="/users")
 
 
 # Schemas para request/response
@@ -347,7 +347,7 @@ async def confirm_email(token: str, email: str, type: str = "signup"):
         </head>
         <body>
             <div class="container">
-                <h1>✅ ¡Email Confirmado!</h1>
+                <h1>¡Email Confirmado!</h1>
                 <div class="spinner"></div>
                 <p>Abriendo tu app...</p>
                 <p id="error" class="error"></p>
@@ -395,7 +395,7 @@ async def confirm_email(token: str, email: str, type: str = "signup"):
         </head>
         <body>
             <div class="container">
-                <h1>❌ Error Procesando Confirmación</h1>
+                <h1>Error Procesando Confirmación</h1>
                 <p>{str(e)}</p>
                 <p>Por favor, intenta nuevamente o contacta a soporte.</p>
             </div>
@@ -538,6 +538,117 @@ async def delete_my_account(
 # =======================================================================
 # === ENDPOINT DE SALUD (Para verificar API)
 # =======================================================================
+
+
+@router.post(
+    "/forgot-password",
+    status_code=status.HTTP_200_OK,
+    summary="Solicitar restablecimiento de contraseña",
+)
+async def forgot_password(data: UserLoginRequest):
+    """
+    Envía un email con un link para restablecer la contraseña.
+
+    - Acepta el correo del usuario
+    - Supabase envía un email con un link de recuperación
+    - El usuario hace click en el link (deep link o email)
+    - Redirige a la app para cambiar la contraseña
+
+    No requiere autenticación.
+    """
+    try:
+        logger.info("[AUTH] Solicitud de restablecimiento de contraseña")
+
+        # URL donde el usuario cambiará su contraseña
+        redirect_url = "https://api.misboletas.tech/api/v1/users/reset-password"
+
+        # Supabase envía un email con el link de recuperación
+        response = supabase.client.auth.reset_password_for_email(
+            data.correo, {"redirect_to": redirect_url}
+        )
+
+        logger.info("[AUTH] Email de restablecimiento enviado exitosamente")
+
+        return {
+            "status": "success",
+            "message": "Si el correo existe en nuestro sistema, recibirás un enlace para restablecer tu contraseña.",
+        }
+
+    except Exception as e:
+        logger.error(f"[ERROR] Reset password request failed: {e}")
+        # No revelar si el correo existe o no (seguridad)
+        return {
+            "status": "success",
+            "message": "Si el correo existe en nuestro sistema, recibirás un enlace para restablecer tu contraseña.",
+        }
+
+
+@router.post(
+    "/reset-password",
+    response_model=UserAuthResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Restablecer contraseña con token",
+)
+async def reset_password(data: dict):
+    """
+    Restablecer contraseña usando el token del email.
+
+    - El usuario recibe un email con un token
+    - Envía el token + nueva contraseña a este endpoint
+    - Supabase actualiza la contraseña
+    - Retorna nuevo access_token
+
+    Body:
+    {
+        "token": "abc123...",
+        "password": "nueva_contraseña_segura"
+    }
+    """
+    try:
+        token = data.get("token")
+        new_password = data.get("password")
+
+        if not token or not new_password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Token y contraseña son requeridos",
+            )
+
+        logger.info("[AUTH] Restableciendo contraseña")
+
+        # Usar el token para restablecer la contraseña
+        response = supabase.client.auth.update_user(
+            {"password": new_password}, jwt=token
+        )
+
+        # Obtener el usuario actualizado
+        if response.user:
+            logger.info("[AUTH] Contraseña restablecida exitosamente")
+            return {
+                "access_token": (
+                    response.session.access_token if response.session else ""
+                ),
+                "token_type": "bearer",
+                "user": {
+                    "id": response.user.id,
+                    "email": response.user.email,
+                    "user_metadata": response.user.user_metadata or {},
+                },
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Token inválido o expirado",
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[ERROR] Reset password failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Token inválido o expirado. Por favor solicita un nuevo email de recuperación.",
+        )
 
 
 @router.get(

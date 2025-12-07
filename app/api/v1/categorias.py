@@ -13,7 +13,7 @@ from app.schemas.categorias import (
     CategoriaWithProducts,
 )
 
-router = APIRouter(prefix="/categorias", tags=["categorias"])
+router = APIRouter(prefix="/categorias")
 logger = logging.getLogger(__name__)
 
 
