@@ -62,6 +62,13 @@ class Settings(BaseSettings):
     MAIL_STARTTLS: bool = True  # Usar STARTTLS para conexión segura
     MAIL_SSL_TLS: bool = False  # No usar SSL directo (usa STARTTLS)
 
+    # === CONFIGURACIÓN DE DEEP LINKS (EMAIL BRIDGES) ===
+    DEEP_LINK_BASE: str = "exp://192.168.88.7:8081"  # Base URL para deep links
+    # Ejemplos:
+    # - Desarrollo: exp://192.168.88.7:8081
+    # - Expo (nube): exp://u8d2n@exp.host (se obtiene después de subir)
+    # - Producción: misboletas:// (para APK/Play Store)
+
     @property
     def is_production(self) -> bool:
         """Verifica si estamos en producción"""

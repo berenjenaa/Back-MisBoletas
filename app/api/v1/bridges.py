@@ -13,6 +13,7 @@ import logging
 from uuid import UUID
 
 from app.db.supabase import supabase
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -76,20 +77,78 @@ async def confirm_email(
                 <head>
                     <meta charset="utf-8">
                     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>Confirmando email...</title>
+                    <title>Email Confirmado</title>
                     <style>
-                        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }}
-                        .container {{ max-width: 600px; margin: 50px auto; background: white; padding: 40px; border-radius: 8px; text-align: center; }}
-                        .spinner {{ display: inline-block; width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite; margin: 20px 0; }}
-                        @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
-                        p {{ color: #666; }}
+                        body {{ 
+                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+                            margin: 0; 
+                            padding: 20px; 
+                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            min-height: 100vh;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                        }}
+                        .container {{ 
+                            max-width: 500px; 
+                            background: white; 
+                            padding: 40px; 
+                            border-radius: 12px; 
+                            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+                            text-align: center;
+                        }}
+                        .icon {{ font-size: 60px; margin: 0 0 20px 0; }}
+                        h1 {{ 
+                            color: #333; 
+                            font-size: 24px; 
+                            margin: 0 0 15px 0;
+                            font-weight: 600;
+                        }}
+                        p {{ 
+                            color: #666; 
+                            font-size: 15px;
+                            line-height: 1.6;
+                            margin: 0 0 30px 0;
+                        }}
+                        .button {{
+                            display: inline-block;
+                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            color: white;
+                            padding: 14px 40px;
+                            border-radius: 8px;
+                            text-decoration: none;
+                            font-weight: 600;
+                            font-size: 16px;
+                            border: none;
+                            cursor: pointer;
+                            transition: transform 0.2s, box-shadow 0.2s;
+                        }}
+                        .button:hover {{
+                            transform: translateY(-2px);
+                            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+                        }}
+                        .button:active {{
+                            transform: translateY(0);
+                        }}
+                        .error {{
+                            display: none;
+                            background-color: #f8d7da;
+                            border-left: 4px solid #dc3545;
+                            padding: 12px 15px;
+                            margin-top: 20px;
+                            border-radius: 4px;
+                            font-size: 13px;
+                            color: #721c24;
+                        }}
                     </style>
                 </head>
                 <body>
                     <div class="container">
-                        <h1>✅ Email Confirmado</h1>
-                        <div class="spinner"></div>
-                        <p>Procesando tu autenticación...</p>
+                        <div class="icon">✅</div>
+                        <h1>¡Email Confirmado!</h1>
+                        <p>Tu cuenta ha sido verificada exitosamente. Ahora puedes iniciar sesión en la app.</p>
+                        <button class="button" onclick="openApp()" id="btn-open">📱 Volver a la App</button>
+                        <div id="error" class="error"></div>
                     </div>
 
                     <script>
@@ -103,17 +162,30 @@ async def confirm_email(
                         const refreshToken = params.get('refresh_token');
                         const userId = params.get('user_id');
                         
+                        // Variable global para el deep link
+                        let deepLink = null;
+                        
                         if (accessToken && refreshToken) {{
-                            console.log('✅ Tokens encontrados en hash, abriendo app...');
+                            console.log('✅ Tokens encontrados en hash');
                             // Construir deep link con los tokens
-                            const deepLink = `misboletas://auth-callback?access_token=${{accessToken}}&refresh_token=${{refreshToken}}&user_id=${{userId || ''}}&type=signup`;
-                            window.location.href = deepLink;
+                            deepLink = `{settings.DEEP_LINK_BASE}/auth-callback?access_token=${{accessToken}}&refresh_token=${{refreshToken}}&user_id=${{userId || ''}}&type=signup`;
                         }} else {{
-                            console.log('⚠️ No se encontraron tokens, intentando con URL query...');
+                            console.log('⚠️ No se encontraron tokens en hash');
                             // Fallback: abrir la app sin tokens (la app manejará el login)
-                            setTimeout(() => {{
-                                window.location.href = 'misboletas://auth-callback';
-                            }}, 2000);
+                            deepLink = '{settings.DEEP_LINK_BASE}/auth-callback';
+                        }}
+                        
+                        // Solo ejecutar cuando el usuario haga click
+                        function openApp() {{
+                            if (deepLink) {{
+                                window.location.href = deepLink;
+                                // Si después de 3 segundos no se abrió, mostrar error
+                                setTimeout(() => {{
+                                    document.getElementById('btn-open').style.display = 'none';
+                                    document.getElementById('error').style.display = 'block';
+                                    document.getElementById('error').textContent = '❌ No se pudo abrir la app. Asegúrate de tenerla instalada.';
+                                }}, 3000);
+                            }}
                         }}
                     </script>
                 </body>
@@ -144,9 +216,10 @@ async def confirm_email(
             return HTMLResponse(content=error_html, status_code=500)
 
         # ✅ CONSTRUIR DEEP LINK CON TOKENS VERIFICADOS
-        deep_link = f"misboletas://auth-callback?access_token={access_token}&refresh_token={refresh_token}&user_id={user_id}&type={type or 'signup'}&email={user_email}"
+        # Usar DEEP_LINK_BASE desde configuración (variable de entorno)
+        deep_link = f"{settings.DEEP_LINK_BASE}/auth-callback?access_token={access_token}&refresh_token={refresh_token}&user_id={user_id}&type={type or 'signup'}&email={user_email}"
         logger.info(
-            f"[🌐 PUENTE] Deep link construido: misboletas://auth-callback con tokens"
+            f"[🌐 PUENTE] Deep link construido: {settings.DEEP_LINK_BASE}/auth-callback con tokens"
         )
 
         # HTML BONITO CON SPINNER Y BOTÓN DE FALLBACK
@@ -265,20 +338,11 @@ async def confirm_email(
                 <div class="content">
                     <h2>✅ ¡Email Confirmado!</h2>
                     
-                    <p>Tu correo ha sido verificado exitosamente. Abriendo tu app...</p>
+                    <p>Tu correo ha sido verificado exitosamente.</p>
                     
-                    <div style="text-align: center;">
-                        <div class="spinner"></div>
-                        <p id="message" style="color: #667eea; font-weight: 600;">Abriendo MisBoletas...</p>
-                    </div>
+                    <button class="button" onclick="openApp()" id="btn-open">📱 Volver a la App</button>
                     
                     <div id="error" class="error"></div>
-                    
-                    <p style="margin-top: 30px;">
-                        <strong>Si la app no se abre automáticamente:</strong>
-                    </p>
-                    
-                    <button class="button" onclick="openApp()">📱 Abrir App</button>
                 </div>
                 
                 <div class="footer">
@@ -291,18 +355,16 @@ async def confirm_email(
                 const deepLink = '{deep_link}';
 
                 function openApp() {{
-                    window.location.href = deepLink;
-                    setTimeout(() => {{
-                        document.getElementById('message').style.display = 'none';
-                        document.getElementById('error').style.display = 'block';
-                        document.getElementById('error').textContent = '❌ No se pudo abrir la app. Por favor, asegúrate de tenerla instalada.';
-                    }}, 3000);
+                    if (deepLink) {{
+                        window.location.href = deepLink;
+                        // Si después de 3 segundos no se abrió, mostrar error
+                        setTimeout(() => {{
+                            document.getElementById('btn-open').style.display = 'none';
+                            document.getElementById('error').style.display = 'block';
+                            document.getElementById('error').textContent = '❌ No se pudo abrir la app. Asegúrate de tenerla instalada.';
+                        }}, 3000);
+                    }}
                 }}
-
-                // Intentar abrir automáticamente al cargar la página
-                window.addEventListener('load', () => {{
-                    setTimeout(openApp, 500);
-                }});
             </script>
         </body>
         </html>

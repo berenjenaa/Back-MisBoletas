@@ -281,12 +281,14 @@ async def confirm_email(
     - Funciona en emails, SMS, cualquier lado
     """
     try:
-        logger.info(f"[🌉 PUENTE] Confirm endpoint called: email={email}, type={type}, code={code}")
+        logger.info(
+            f"[🌉 PUENTE] Confirm endpoint called: email={email}, type={type}, code={code}"
+        )
 
         # Supabase redirige después de verificar el token
         # Usamos code o token, ambos pueden venir
         verification_token = code or token
-        
+
         if not email:
             logger.error("[ERROR] Email no proporcionado")
             error_html = f"""
@@ -372,12 +374,9 @@ async def confirm_email(
         # El access_token es lo que necesita la app para autenticarse
         access_token = res.session.access_token if res.session else ""
         refresh_token = res.session.refresh_token if res.session else ""
-        
-        deep_link = (
-            f"misboletas://auth-callback?access_token={access_token}&refresh_token={refresh_token}&user_id={user_id}&type={type}"
-        )
-        logger.info(f"[🌐 PUENTE] Opening deep link with access_token")
 
+        deep_link = f"misboletas://auth-callback?access_token={access_token}&refresh_token={refresh_token}&user_id={user_id}&type={type}"
+        logger.info(f"[🌐 PUENTE] Opening deep link with access_token")
 
         # HTML con JavaScript que intenta abrir el deep link
         success_html = f"""
