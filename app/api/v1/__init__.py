@@ -13,6 +13,7 @@ from . import (
     admin_gcs,
     webhooks,
     faqs,
+    bridges,
 )
 
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "admin_gcs",
     "webhooks",
     "faqs",
+    "bridges",
 ]

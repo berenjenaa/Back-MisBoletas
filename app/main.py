@@ -13,6 +13,7 @@ from app.api.v1 import (
     admin_gcs,
     webhooks,
     faqs,
+    bridges,
 )
 
 # --- Importaciones del Core ---
@@ -165,6 +166,7 @@ setup_exception_handlers(app)
 api_v1_prefix = "/api/v1"
 
 app.include_router(user.router, prefix=api_v1_prefix, tags=["Usuarios"])
+app.include_router(bridges.router, prefix=api_v1_prefix)
 app.include_router(product.router, prefix=api_v1_prefix, tags=["Productos"])
 app.include_router(categorias.router, prefix=api_v1_prefix, tags=["Categorías"])
 app.include_router(organizations.router, prefix=api_v1_prefix, tags=["Organizaciones"])
