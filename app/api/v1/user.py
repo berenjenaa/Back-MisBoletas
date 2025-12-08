@@ -79,7 +79,7 @@ async def register(data: UserRegisterRequest):
 
         # ✅ URL DEL PUENTE (DEFINITIVA Y PROFESIONAL)
         # Este es el endpoint que verifica el OTP y abre la app
-        puente_url = "https://api.misboletas.tech/api/v1/users/confirm"
+        puente_url = "https://api.misboletas.tech/api/v1/bridges/confirm"
 
         # Preparar opciones de autenticación para Supabase
         auth_options = {
