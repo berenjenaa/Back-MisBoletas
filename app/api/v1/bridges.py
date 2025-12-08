@@ -34,7 +34,7 @@ async def confirm_email(
 
     FLUJO:
     1. Usuario se registra en la app
-    2. Supabase envía email con link: 
+    2. Supabase envía email con link:
        https://pqsohqwhrzwuhdqlilqf.supabase.co/auth/v1/verify?token=XXX&type=signup&redirect_to=https://api.misboletas.tech/api/v1/auth/confirm
     3. Usuario hace click → Supabase verifica el token
     4. Supabase redirige a THIS endpoint con ?code= o ?token=
@@ -47,7 +47,9 @@ async def confirm_email(
     - Funciona en todos los dispositivos
     """
     try:
-        logger.info(f"[🌉 PUENTE] Confirm endpoint llamado: code={code}, token={token}, email={email}, type={type}")
+        logger.info(
+            f"[🌉 PUENTE] Confirm endpoint llamado: code={code}, token={token}, email={email}, type={type}"
+        )
 
         # Supabase verifica el token EN SU SERVIDOR y luego redirige aquí
         # La sesión del usuario ya está verificada
@@ -55,38 +57,69 @@ async def confirm_email(
         try:
             session = supabase.client.auth.get_session()
             if session and session.user and session.session:
-                logger.info(f"[✅ PUENTE] Sesión activa encontrada para usuario: {session.user.id}")
+                logger.info(
+                    f"[✅ PUENTE] Sesión activa encontrada para usuario: {session.user.id}"
+                )
                 user_id = session.user.id
                 user_email = session.user.email or email
                 access_token = session.session.access_token
                 refresh_token = session.session.refresh_token
             else:
-                logger.warning("[⚠️ PUENTE] No hay sesión activa, pero Supabase verificó el token")
-                # Si no hay sesión en cookies, algo salió mal
-                # Mostrar error
-                error_html = f"""
+                logger.warning(
+                    "[⚠️ PUENTE] No hay sesión activa en cookies, intentando leer desde hash"
+                )
+                # Supabase puede pasar los datos en el fragmento de la URL (#)
+                # Retornar HTML que lea el hash con JavaScript
+                html_con_hash = f"""
                 <!DOCTYPE html>
                 <html>
                 <head>
                     <meta charset="utf-8">
                     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>Error de Confirmación</title>
+                    <title>Confirmando email...</title>
                     <style>
                         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }}
-                        .container {{ max-width: 600px; margin: 50px auto; background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }}
-                        h1 {{ color: #d32f2f; margin: 0 0 10px 0; }}
-                        p {{ color: #666; font-size: 16px; line-height: 1.6; }}
+                        .container {{ max-width: 600px; margin: 50px auto; background: white; padding: 40px; border-radius: 8px; text-align: center; }}
+                        .spinner {{ display: inline-block; width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite; margin: 20px 0; }}
+                        @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
+                        p {{ color: #666; }}
                     </style>
                 </head>
                 <body>
                     <div class="container">
-                        <h1>⏰ Error de Autenticación</h1>
-                        <p>No se pudo completar la verificación. Por favor, intenta registrarte nuevamente.</p>
+                        <h1>✅ Email Confirmado</h1>
+                        <div class="spinner"></div>
+                        <p>Procesando tu autenticación...</p>
                     </div>
+
+                    <script>
+                        // Leer el fragmento de la URL que Supabase envía
+                        const hash = window.location.hash;
+                        console.log('Hash recibido:', hash);
+                        
+                        // Parsear los parámetros del hash
+                        const params = new URLSearchParams(hash.substring(1));
+                        const accessToken = params.get('access_token');
+                        const refreshToken = params.get('refresh_token');
+                        const userId = params.get('user_id');
+                        
+                        if (accessToken && refreshToken) {{
+                            console.log('✅ Tokens encontrados en hash, abriendo app...');
+                            // Construir deep link con los tokens
+                            const deepLink = `misboletas://auth-callback?access_token=${{accessToken}}&refresh_token=${{refreshToken}}&user_id=${{userId || ''}}&type=signup`;
+                            window.location.href = deepLink;
+                        }} else {{
+                            console.log('⚠️ No se encontraron tokens, intentando con URL query...');
+                            // Fallback: abrir la app sin tokens (la app manejará el login)
+                            setTimeout(() => {{
+                                window.location.href = 'misboletas://auth-callback';
+                            }}, 2000);
+                        }}
+                    </script>
                 </body>
                 </html>
                 """
-                return HTMLResponse(content=error_html, status_code=400)
+                return HTMLResponse(content=html_con_hash, status_code=200)
         except Exception as e:
             logger.error(f"[ERROR] No se pudo obtener sesión de Supabase: {e}")
             error_html = f"""
@@ -111,10 +144,10 @@ async def confirm_email(
             return HTMLResponse(content=error_html, status_code=500)
 
         # ✅ CONSTRUIR DEEP LINK CON TOKENS VERIFICADOS
-        deep_link = (
-            f"misboletas://auth-callback?access_token={access_token}&refresh_token={refresh_token}&user_id={user_id}&type={type or 'signup'}&email={user_email}"
+        deep_link = f"misboletas://auth-callback?access_token={access_token}&refresh_token={refresh_token}&user_id={user_id}&type={type or 'signup'}&email={user_email}"
+        logger.info(
+            f"[🌐 PUENTE] Deep link construido: misboletas://auth-callback con tokens"
         )
-        logger.info(f"[🌐 PUENTE] Deep link construido: misboletas://auth-callback con tokens")
 
         # HTML BONITO CON SPINNER Y BOTÓN DE FALLBACK
         success_html = f"""
@@ -327,7 +360,7 @@ async def reset_password_bridge(
                 logger.info(f"[✅ PUENTE] Sesión recovery encontrada")
                 access_token = session.session.access_token
                 user_email = session.user.email or email
-                
+
                 # Para reset password, usar el access_token como token
                 deep_link = f"misboletas://reset-password?token={access_token}&email={user_email}"
             else:
