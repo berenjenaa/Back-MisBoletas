@@ -1,7 +1,6 @@
 # En app/api/v1/tickets.py
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi_mail import FastMail, MessageSchema, MessageType
 from typing import List
 from uuid import UUID
 import logging
@@ -15,7 +14,7 @@ from app.core.dependencies import (
     get_current_user,
     get_active_user_id,
 )
-from app.core.email_config import fast_mail
+from app.core.email_config import send_email
 from app.core.dependencies import CurrentUser
 
 logger = logging.getLogger(__name__)
@@ -121,28 +120,19 @@ async def create_ticket(
             </html>
             """
 
-            # Enviar email solo si está configurado
-            if fast_mail:
-                # Crear objeto de mensaje
-                message = MessageSchema(
+            # Enviar email de confirmación
+            try:
+                await send_email(
+                    recipient_email=email_usuario,
                     subject=asunto_email,
-                    recipients=[email_usuario],  # Enviar confirmación al usuario
-                    body=mensaje_html,
-                    subtype=MessageType.html,
+                    html_content=mensaje_html,
                 )
-
-                # Enviar email
-                await fast_mail.send_message(message)
                 logger.info(
                     f"[INFO] Email sent for ticket {ticket['id_ticket']} to {email_usuario}"
                 )
-            else:
-                logger.warning(
-                    f"[WARNING] Email not configured - skipping notification for ticket {ticket['id_ticket']}"
-                )
-        except Exception as e:
-            logger.warning(f"[WARNING] Failed to send email for ticket: {e}")
-            # No lanzar excepción aquí, el ticket fue creado exitosamente
+            except Exception as email_error:
+                logger.warning(f"[WARNING] Failed to send email for ticket: {email_error}")
+                # No lanzar excepción aquí, el ticket fue creado exitosamente
 
         return TicketRead(**ticket)
 
