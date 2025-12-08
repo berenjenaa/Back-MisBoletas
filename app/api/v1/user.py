@@ -5,9 +5,11 @@ from typing import Optional
 from uuid import UUID
 from datetime import datetime
 import logging
+import asyncio
 
 from app.db.supabase import supabase_admin, supabase
 from app.core.dependencies import get_current_user_id, get_active_user_id
+from app.core.email_config import send_email
 
 logger = logging.getLogger(__name__)
 
@@ -74,25 +76,16 @@ async def register(data: UserRegisterRequest):
     - Retorna access_token para usar en otros endpoints
     """
     try:
-        # Log para auditoría (sin exponer datos sensibles)
         logger.info("[AUTH] Registro iniciado")
 
-        # Configurar URL del puente donde Supabase redirigirá después de enviar email
-        puente_url = "https://api.misboletas.tech/api/v1/bridges/confirm"
-
-        auth_options = {
-            "data": {"full_name": data.nombre or data.correo.split("@")[0]},
-            "email_redirect_to": puente_url,
-        }
-
-        logger.info("[AUTH] Email de confirmación configurado")
-
-        # Registrar en Supabase Auth
+        # Registrar en Supabase Auth SIN email_redirect_to (nosotros enviamos el email)
         res = supabase.client.auth.sign_up(
             {
                 "email": data.correo,
                 "password": data.contrasena,
-                "options": auth_options,
+                "options": {
+                    "data": {"full_name": data.nombre or data.correo.split("@")[0]},
+                },
             }
         )
 
@@ -105,7 +98,70 @@ async def register(data: UserRegisterRequest):
             )
 
         user_id = UUID(res.user.id)
-        logger.info("[AUTH] Usuario registrado - pendiente confirmación de email")
+        logger.info(f"[AUTH] Usuario registrado: {user_id}")
+
+        # Obtener el token de confirmación desde Supabase (si está disponible)
+        # Nota: Supabase genera el token internamente, necesitamos usar la API para obtenerlo
+        # Por ahora, usamos la URL con token que Supabase genera
+        
+        # Construir email HTML de confirmación
+        confirmation_url = f"https://api.misboletas.tech/api/v1/bridges/confirm?email={data.correo}"
+        
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }}
+                .container {{ max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+                .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 20px; text-align: center; color: white; }}
+                .header h1 {{ margin: 0; font-size: 28px; font-weight: 600; }}
+                .content {{ padding: 40px 30px; }}
+                .content h2 {{ color: #333; font-size: 20px; margin: 0 0 15px 0; }}
+                .content p {{ color: #666; font-size: 14px; line-height: 1.6; margin: 10px 0; }}
+                .button {{ display: inline-block; background: #667eea; color: white; padding: 16px 40px; border-radius: 6px; text-decoration: none; font-weight: 600; margin: 25px 0; }}
+                .button:hover {{ background: #764ba2; }}
+                .footer {{ background: #f9f9f9; padding: 20px 30px; text-align: center; border-top: 1px solid #eee; }}
+                .footer p {{ color: #999; font-size: 12px; margin: 5px 0; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>¡Bienvenido a MisBoletas!</h1>
+                </div>
+                <div class="content">
+                    <h2>Confirma tu correo electrónico</h2>
+                    <p>Hola {data.nombre or data.correo.split("@")[0]},</p>
+                    <p>Gracias por registrarte. Para completar tu registro, confirma tu correo haciendo clic en el botón:</p>
+                    <div style="text-align: center;">
+                        <a href="{confirmation_url}" class="button">Confirmar Correo</a>
+                    </div>
+                    <p style="font-size: 12px; color: #999; margin-top: 20px;">O copia este link: {confirmation_url}</p>
+                    <p style="font-size: 12px; color: #999;">Este link expira en 24 horas.</p>
+                </div>
+                <div class="footer">
+                    <p>© 2024 MisBoletas</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        # Enviar email de confirmación via Resend
+        try:
+            await send_email(
+                recipient_email=data.correo,
+                subject="Confirma tu correo en MisBoletas",
+                html_content=html_content,
+            )
+            logger.info(f"[EMAIL] Correo de confirmación enviado a {data.correo}")
+        except Exception as email_error:
+            logger.error(f"[EMAIL] Fallo al enviar email: {email_error}")
+            # No fallamos el registro si falla el email
+            # El usuario puede solicitar reenvío luego
 
         # Retornar sin access_token (usuario debe confirmar email primero)
         return {
@@ -122,7 +178,7 @@ async def register(data: UserRegisterRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("[AUTH] Error en registro de usuario")
+        logger.error(f"[AUTH] Error en registro: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Error al registrarse. Por favor intenta más tarde.",
@@ -391,16 +447,74 @@ async def forgot_password(data: UserLoginRequest):
     try:
         logger.info("[AUTH] Solicitud de restablecimiento de contraseña")
 
-        # URL de redirección para reset password (puente en bridges.py)
-        # Supabase añadirá automáticamente: ?token=xxx&type=recovery
-        redirect_url = "https://api.misboletas.tech/api/v1/bridges/reset-password"
-
-        # Supabase envía un email con el link de recuperación
+        # Solicitar recovery en Supabase (genera el token internamente)
         response = supabase.client.auth.reset_password_for_email(
-            data.correo, {"redirect_to": redirect_url}
+            data.correo,
+            {"redirect_to": f"https://api.misboletas.tech/api/v1/bridges/reset-password?email={data.correo}"}
         )
 
-        logger.info("[AUTH] Email de restablecimiento enviado exitosamente")
+        logger.info("[AUTH] Recovery solicitado en Supabase")
+
+        # Construir email HTML
+        reset_url = f"https://api.misboletas.tech/api/v1/bridges/reset-password?email={data.correo}"
+        
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }}
+                .container {{ max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+                .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 20px; text-align: center; color: white; }}
+                .header h1 {{ margin: 0; font-size: 28px; font-weight: 600; }}
+                .content {{ padding: 40px 30px; }}
+                .content h2 {{ color: #333; font-size: 20px; margin: 0 0 15px 0; }}
+                .content p {{ color: #666; font-size: 14px; line-height: 1.6; margin: 10px 0; }}
+                .warning {{ background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px 15px; margin: 15px 0; border-radius: 4px; font-size: 13px; color: #856404; }}
+                .footer {{ background: #f9f9f9; padding: 20px 30px; text-align: center; border-top: 1px solid #eee; }}
+                .footer p {{ color: #999; font-size: 12px; margin: 5px 0; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>🔐 Restablecer Contraseña</h1>
+                </div>
+                <div class="content">
+                    <h2>Solicitud de restablecimiento de contraseña</h2>
+                    <p>Recibimos una solicitud para restablecer tu contraseña en MisBoletas.</p>
+                    <p>Si fuiste tú, haz clic en el siguiente link para continuar:</p>
+                    <div style="text-align: center;">
+                        <a href="{reset_url}" style="display: inline-block; background: #667eea; color: white; padding: 16px 40px; border-radius: 6px; text-decoration: none; font-weight: 600; margin: 25px 0;">
+                            Restablecer Contraseña
+                        </a>
+                    </div>
+                    <p style="font-size: 12px; color: #999; margin-top: 20px;">O copia este link: {reset_url}</p>
+                    <div class="warning">
+                        ⚠️ Este link expira en 1 hora. Si no fuiste tú quien solicitó esto, ignora este email.
+                    </div>
+                </div>
+                <div class="footer">
+                    <p>© 2024 MisBoletas</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        # Enviar email via Resend
+        try:
+            await send_email(
+                recipient_email=data.correo,
+                subject="Restablecer contraseña en MisBoletas",
+                html_content=html_content,
+            )
+            logger.info(f"[EMAIL] Correo de reset enviado a {data.correo}")
+        except Exception as email_error:
+            logger.error(f"[EMAIL] Fallo al enviar email: {email_error}")
+            # No fallamos la solicitud si falla el email
 
         return {
             "status": "success",

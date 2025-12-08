@@ -6,7 +6,7 @@ Estos endpoints actúan como intermediarios entre los emails de Supabase y la ap
 - Devuelven HTML con deep links a la app
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from fastapi.responses import HTMLResponse
 import logging
 
@@ -18,44 +18,36 @@ router = APIRouter(prefix="/bridges")
 
 
 @router.get("/confirm", summary="Puente: Confirmar email desde enlace")
-async def confirm_email(token: str, email: str, type: str = "signup"):
+async def confirm_email(
+    access_token: str = Query(None),
+    refresh_token: str = Query(None),
+    user_id: str = Query(None),
+    email: str = Query(None),
+    type: str = Query(None),
+):
     """
-    Endpoint que actúa como intermediario entre Supabase email y la app.
-
-    Flujo:
-    1. Email contiene: https://api.misboletas.tech/api/v1/bridges/confirm?token=XXX&email=YYY&type=signup
-    2. Usuario hace click → Llama este endpoint
-    3. Verifica OTP con Supabase y devuelve deep link a la app
+    Puente para confirmación de email.
+    
+    Supabase puede enviar el access_token directamente en el hash.
+    Si viene con tokens, usamos esos. Si no, abrimos la app con el email.
     """
     try:
         logger.info(f"[PUENTE] Confirm endpoint - email={email}, type={type}")
 
-        # Verificar el OTP con Supabase
-        res = supabase.client.auth.verify_otp(
-            {
-                "email": email,
-                "token": token,
-                "type": type,
-            }
-        )
-
-        if not res.user or not res.session:
-            logger.error(f"[ERROR] OTP verification failed for {email}")
+        # Si Supabase envió el access_token, usarlo directamente
+        if access_token and refresh_token and user_id:
+            logger.info(f"[OK] Tokens recibidos de Supabase")
+            deep_link = f"misboletas://auth-callback?access_token={access_token}&refresh_token={refresh_token}&user_id={user_id}"
+        elif email:
+            # Si solo tenemos email, abrir la app para que verifique
+            deep_link = f"misboletas://confirm-email?email={email}"
+        else:
+            logger.error("[ERROR] No parámetros válidos")
             return HTMLResponse(
-                content="<h1>❌ Token Inválido o Expirado</h1><p>Por favor intenta registrarte nuevamente.</p>",
+                content="<h1>❌ Parámetros inválidos</h1>",
                 status_code=400,
             )
 
-        access_token = res.session.access_token
-        refresh_token = res.session.refresh_token
-        user_id = res.user.id
-
-        logger.info(f"[OK] OTP verified for {email}")
-
-        # Construir deep link a la app
-        deep_link = f"misboletas://auth-callback?access_token={access_token}&refresh_token={refresh_token}&user_id={user_id}"
-
-        # HTML simple que abre el deep link
         success_html = f"""
         <!DOCTYPE html>
         <html>
@@ -64,7 +56,7 @@ async def confirm_email(token: str, email: str, type: str = "signup"):
             <title>Confirmando...</title>
         </head>
         <body>
-            <p>Redirigiendo a tu app...</p>
+            <p>Abriendo MisBoletas...</p>
             <script>
                 window.location.href = '{deep_link}';
             </script>
@@ -81,24 +73,34 @@ async def confirm_email(token: str, email: str, type: str = "signup"):
         )
 
 
-@router.get(
-    "/reset-password",
-    summary="🌉 Puente: Restablecer contraseña desde email",
-)
-async def reset_password_bridge(token: str = None):
+@router.get("/reset-password", summary="Puente: Restablecer contraseña")
+async def reset_password_bridge(
+    access_token: str = Query(None),
+    refresh_token: str = Query(None),
+    user_id: str = Query(None),
+    email: str = Query(None),
+    type: str = Query(None),
+):
     """
-    🌉 PUENTE: Endpoint para restablecer contraseña
+    Puente para restablecer contraseña.
+    Supabase puede enviar tokens en el hash, o podemos abrir la app con el email.
     """
     try:
-        logger.info(f"[🌉 PUENTE] Reset password bridge called")
+        logger.info(f"[PUENTE] Reset password bridge - email={email}, type={type}")
 
-        if not token:
-            logger.error("[ERROR] No token provided")
-            return HTMLResponse(content="<h1>Token inválido</h1>", status_code=400)
-
-        # Construir deep link a la app
-        deep_link = f"misboletas://reset-password?token={token}"
-        logger.info(f"[🔗 PUENTE] Opening deep link: {deep_link}")
+        # Si Supabase envió tokens de recovery, usarlos
+        if access_token and type == "recovery":
+            logger.info(f"[OK] Recovery tokens recibidos de Supabase")
+            deep_link = f"misboletas://reset-password?access_token={access_token}&refresh_token={refresh_token}&user_id={user_id}&type=recovery"
+        elif email:
+            # Si solo tenemos email, abrir la app para reset password
+            deep_link = f"misboletas://reset-password?email={email}"
+        else:
+            logger.error("[ERROR] No parámetros válidos")
+            return HTMLResponse(
+                content="<h1>❌ Parámetros inválidos</h1>",
+                status_code=400,
+            )
 
         success_html = f"""
         <!DOCTYPE html>
