@@ -138,5 +138,5 @@ def send_email_sync(
         loop.close()
         return result
     except Exception as e:
-        logger.error(f"[ERROR] Failed to send email synchronously: {e}", exc_info=True)
+        logger.error(f"[ERROR] Failed in send_email_sync: {e}")
         return False

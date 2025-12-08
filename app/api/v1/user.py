@@ -77,25 +77,22 @@ async def register(data: UserRegisterRequest):
         # Log para auditoría (sin exponer datos sensibles)
         logger.info("[AUTH] Registro iniciado")
 
-        # ✅ URL DEL PUENTE (DEFINITIVA Y PROFESIONAL)
-        # Este es el endpoint que verifica el OTP y abre la app
+        # Configurar URL del puente donde Supabase redirigirá después de enviar email
         puente_url = "https://api.misboletas.tech/api/v1/bridges/confirm"
 
-        # Preparar opciones de autenticación para Supabase
         auth_options = {
             "data": {"full_name": data.nombre or data.correo.split("@")[0]},
-            "email_redirect_to": puente_url,  # ✅ SIEMPRE USAR EL PUENTE
+            "email_redirect_to": puente_url,
         }
 
         logger.info("[AUTH] Email de confirmación configurado")
 
-        # Registrar en Supabase Auth con opciones
-        # El trigger on_auth_user_created se ejecutará automáticamente
+        # Registrar en Supabase Auth
         res = supabase.client.auth.sign_up(
             {
                 "email": data.correo,
                 "password": data.contrasena,
-                "options": auth_options,  # ✅ ESTO ES LO CRUCIAL
+                "options": auth_options,
             }
         )
 
@@ -108,22 +105,11 @@ async def register(data: UserRegisterRequest):
             )
 
         user_id = UUID(res.user.id)
-        logger.info("[AUTH] ✅ Usuario registrado exitosamente")
+        logger.info("[AUTH] Usuario registrado - pendiente confirmación de email")
 
-        # Si hay session (usuario confirmado), usarla
-        # Si no hay session (pendiente confirmación), generar token temporal
-        access_token = ""
-        if res.session:
-            access_token = res.session.access_token
-            logger.info("[AUTH] Sesión activa proporcionada")
-        else:
-            # Usuario registrado pero pendiente confirmación de email
-            # El frontend deberá usar el token OTP cuando confirme el email
-            logger.info("[AUTH] ⏳ Registro pendiente de confirmación de email")
-            access_token = ""
-
+        # Retornar sin access_token (usuario debe confirmar email primero)
         return {
-            "access_token": access_token,
+            "access_token": "",
             "token_type": "bearer",
             "user": {
                 "id_usuario": str(user_id),
