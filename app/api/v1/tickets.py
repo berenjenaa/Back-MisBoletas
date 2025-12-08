@@ -121,20 +121,18 @@ async def create_ticket(
             """
 
             # Enviar email de confirmación
-            try:
-                await send_email(
-                    recipient_email=email_usuario,
-                    subject=asunto_email,
-                    html_content=mensaje_html,
-                )
-                logger.info(
-                    f"[INFO] Email sent for ticket {ticket['id_ticket']} to {email_usuario}"
-                )
-            except Exception as email_error:
-                logger.warning(f"[WARNING] Failed to send email for ticket: {email_error}")
-                # No lanzar excepción aquí, el ticket fue creado exitosamente
+            await send_email(
+                recipient_email=email_usuario,
+                subject=asunto_email,
+                html_content=mensaje_html,
+            )
+            logger.info(
+                f"[INFO] Email sent for ticket {ticket['id_ticket']} to {email_usuario}"
+            )
+        except Exception as email_error:
+            logger.warning(f"[WARNING] Failed to send email for ticket: {email_error}")
+            # No lanzar excepción aquí, el ticket fue creado exitosamente
 
-        # Retornar el ticket creado
         return TicketRead(**ticket)
 
     except HTTPException:
