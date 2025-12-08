@@ -103,10 +103,12 @@ async def register(data: UserRegisterRequest):
         # Obtener el token de confirmación desde Supabase (si está disponible)
         # Nota: Supabase genera el token internamente, necesitamos usar la API para obtenerlo
         # Por ahora, usamos la URL con token que Supabase genera
-        
+
         # Construir email HTML de confirmación
-        confirmation_url = f"https://api.misboletas.tech/api/v1/bridges/confirm?email={data.correo}"
-        
+        confirmation_url = (
+            f"https://api.misboletas.tech/api/v1/bridges/confirm?email={data.correo}"
+        )
+
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -447,17 +449,19 @@ async def forgot_password(data: UserLoginRequest):
     try:
         logger.info("[AUTH] Solicitud de restablecimiento de contraseña")
 
-        # Solicitar recovery en Supabase (genera el token internamente)
+        # Solicitar recovery en Supabase con redirect_to apuntando al puente
+        redirect_url = "https://api.misboletas.tech/api/v1/bridges/reset-password"
         response = supabase.client.auth.reset_password_for_email(
-            data.correo,
-            {"redirect_to": f"https://api.misboletas.tech/api/v1/bridges/reset-password?email={data.correo}"}
+            data.correo, {"redirect_to": redirect_url}
         )
 
-        logger.info("[AUTH] Recovery solicitado en Supabase")
+        logger.info(
+            f"[AUTH] Recovery solicitado en Supabase con redirect_to={redirect_url}"
+        )
 
         # Construir email HTML
-        reset_url = f"https://api.misboletas.tech/api/v1/bridges/reset-password?email={data.correo}"
-        
+        reset_url = redirect_url
+
         html_content = f"""
         <!DOCTYPE html>
         <html>

@@ -27,7 +27,7 @@ async def confirm_email(
 ):
     """
     Puente para confirmación de email.
-    
+
     Supabase puede enviar el access_token directamente en el hash.
     Si viene con tokens, usamos esos. Si no, abrimos la app con el email.
     """
