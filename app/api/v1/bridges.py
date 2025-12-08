@@ -91,7 +91,8 @@ async def reset_password_bridge(
         # Si Supabase envió tokens de recovery, usarlos
         if access_token and type == "recovery":
             logger.info(f"[OK] Recovery tokens recibidos de Supabase")
-            deep_link = f"misboletas://reset-password?access_token={access_token}&refresh_token={refresh_token}&user_id={user_id}&type=recovery"
+            # Pasar access_token como 'token' para que la app lo reciba correctamente
+            deep_link = f"misboletas://reset-password?token={access_token}"
         elif email:
             # Si solo tenemos email, abrir la app para reset password
             deep_link = f"misboletas://reset-password?email={email}"
