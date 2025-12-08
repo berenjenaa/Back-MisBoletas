@@ -2,124 +2,378 @@
 Puentes de Email (Bridges)
 
 Estos endpoints actúan como intermediarios entre los emails de Supabase y la app.
-- Reciben tokens/OTP del email
+- Reciben redirecciones de Supabase después de verificar OTP
 - Devuelven HTML con deep links a la app
+- NO requieren parámetros obligatorios (Supabase maneja la verificación)
 """
 
 from fastapi import APIRouter, Query
 from fastapi.responses import HTMLResponse
 import logging
+from uuid import UUID
 
 from app.db.supabase import supabase
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/bridges")
+router = APIRouter(prefix="/auth")
 
 
-@router.get("/confirm", summary="Puente: Confirmar email desde enlace")
+@router.get(
+    "/confirm",
+    summary="Puente: Confirmar email desde enlace",
+)
 async def confirm_email(
-    access_token: str = Query(None),
-    refresh_token: str = Query(None),
-    user_id: str = Query(None),
+    code: str = Query(None),
+    token: str = Query(None),
     email: str = Query(None),
     type: str = Query(None),
 ):
     """
-    Puente para confirmación de email.
+    🌉 PUENTE: Endpoint que recibe la redirección de Supabase tras verificar OTP.
 
-    Supabase puede enviar el access_token directamente en el hash.
-    Si viene con tokens, usamos esos. Si no, abrimos la app con el email.
+    FLUJO:
+    1. Usuario se registra en la app
+    2. Supabase envía email con link: 
+       https://pqsohqwhrzwuhdqlilqf.supabase.co/auth/v1/verify?token=XXX&type=signup&redirect_to=https://api.misboletas.tech/api/v1/auth/confirm
+    3. Usuario hace click → Supabase verifica el token
+    4. Supabase redirige a THIS endpoint con ?code= o ?token=
+    5. Este endpoint obtiene la sesión y abre la app
+
+    VENTAJAS:
+    - Supabase ya verificó el OTP, es seguro
+    - El usuario ve HTML amigable en el navegador
+    - JavaScript abre el deep link a la app
+    - Funciona en todos los dispositivos
     """
     try:
-        logger.info(f"[PUENTE] Confirm endpoint - email={email}, type={type}")
+        logger.info(f"[🌉 PUENTE] Confirm endpoint llamado: code={code}, token={token}, email={email}, type={type}")
 
-        # Si Supabase envió el access_token, usarlo directamente
-        if access_token and refresh_token and user_id:
-            logger.info(f"[OK] Tokens recibidos de Supabase")
-            deep_link = f"misboletas://auth-callback?access_token={access_token}&refresh_token={refresh_token}&user_id={user_id}"
-        elif email:
-            # Si solo tenemos email, abrir la app para que verifique
-            deep_link = f"misboletas://confirm-email?email={email}"
-        else:
-            logger.error("[ERROR] No parámetros válidos")
-            return HTMLResponse(
-                content="<h1>❌ Parámetros inválidos</h1>",
-                status_code=400,
-            )
+        # Supabase verifica el token EN SU SERVIDOR y luego redirige aquí
+        # La sesión del usuario ya está verificada
+        # Intentar obtener la sesión actual de Supabase
+        try:
+            session = supabase.client.auth.get_session()
+            if session and session.user and session.session:
+                logger.info(f"[✅ PUENTE] Sesión activa encontrada para usuario: {session.user.id}")
+                user_id = session.user.id
+                user_email = session.user.email or email
+                access_token = session.session.access_token
+                refresh_token = session.session.refresh_token
+            else:
+                logger.warning("[⚠️ PUENTE] No hay sesión activa, pero Supabase verificó el token")
+                # Si no hay sesión en cookies, algo salió mal
+                # Mostrar error
+                error_html = f"""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Error de Confirmación</title>
+                    <style>
+                        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }}
+                        .container {{ max-width: 600px; margin: 50px auto; background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }}
+                        h1 {{ color: #d32f2f; margin: 0 0 10px 0; }}
+                        p {{ color: #666; font-size: 16px; line-height: 1.6; }}
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h1>⏰ Error de Autenticación</h1>
+                        <p>No se pudo completar la verificación. Por favor, intenta registrarte nuevamente.</p>
+                    </div>
+                </body>
+                </html>
+                """
+                return HTMLResponse(content=error_html, status_code=400)
+        except Exception as e:
+            logger.error(f"[ERROR] No se pudo obtener sesión de Supabase: {e}")
+            error_html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Error</title>
+                <style>
+                    body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }}
+                    .container {{ max-width: 600px; margin: 50px auto; background: white; padding: 40px; border-radius: 8px; text-align: center; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>❌ Error al Confirmar</h1>
+                    <p>Por favor, intenta más tarde o contacta a soporte.</p>
+                </div>
+            </body>
+            </html>
+            """
+            return HTMLResponse(content=error_html, status_code=500)
 
+        # ✅ CONSTRUIR DEEP LINK CON TOKENS VERIFICADOS
+        deep_link = (
+            f"misboletas://auth-callback?access_token={access_token}&refresh_token={refresh_token}&user_id={user_id}&type={type or 'signup'}&email={user_email}"
+        )
+        logger.info(f"[🌐 PUENTE] Deep link construido: misboletas://auth-callback con tokens")
+
+        # HTML BONITO CON SPINNER Y BOTÓN DE FALLBACK
         success_html = f"""
         <!DOCTYPE html>
         <html>
         <head>
             <meta charset="utf-8">
-            <title>Confirmando...</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>¡Bienvenido a MisBoletas!</title>
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+                    margin: 0;
+                    padding: 0;
+                    background-color: #f5f5f5;
+                }}
+                .container {{
+                    max-width: 600px;
+                    margin: 0 auto;
+                    background-color: #ffffff;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                    overflow: hidden;
+                }}
+                .header {{
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    padding: 40px 20px;
+                    text-align: center;
+                    color: white;
+                }}
+                .header h1 {{
+                    margin: 0;
+                    font-size: 28px;
+                    font-weight: 600;
+                }}
+                .content {{
+                    padding: 40px 30px;
+                    text-align: center;
+                }}
+                .content h2 {{
+                    color: #333333;
+                    font-size: 20px;
+                    margin: 0 0 15px 0;
+                }}
+                .content p {{
+                    color: #666666;
+                    font-size: 14px;
+                    line-height: 1.6;
+                    margin: 10px 0;
+                }}
+                .spinner {{
+                    display: inline-block;
+                    width: 40px;
+                    height: 40px;
+                    border: 4px solid #f3f3f3;
+                    border-top: 4px solid #667eea;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                    margin: 20px 0;
+                }}
+                @keyframes spin {{
+                    0% {{ transform: rotate(0deg); }}
+                    100% {{ transform: rotate(360deg); }}
+                }}
+                .button {{
+                    display: inline-block;
+                    background-color: #667eea;
+                    color: white;
+                    padding: 16px 40px;
+                    border-radius: 6px;
+                    text-decoration: none;
+                    font-weight: 600;
+                    font-size: 16px;
+                    margin: 25px 0;
+                    border: 2px solid #667eea;
+                    cursor: pointer;
+                }}
+                .button:hover {{
+                    background-color: #764ba2;
+                    border-color: #764ba2;
+                }}
+                .footer {{
+                    background-color: #f9f9f9;
+                    padding: 20px 30px;
+                    text-align: center;
+                    border-top: 1px solid #eeeeee;
+                }}
+                .footer p {{
+                    color: #999999;
+                    font-size: 12px;
+                    margin: 5px 0;
+                }}
+                .footer a {{
+                    color: #667eea;
+                    text-decoration: none;
+                }}
+                .error {{
+                    display: none;
+                    background-color: #f8d7da;
+                    border-left: 4px solid #dc3545;
+                    padding: 12px 15px;
+                    margin: 15px 0;
+                    border-radius: 4px;
+                    font-size: 13px;
+                    color: #721c24;
+                }}
+            </style>
         </head>
         <body>
-            <p>Abriendo MisBoletas...</p>
+            <div class="container">
+                <div class="header">
+                    <h1>¡Bienvenido a MisBoletas!</h1>
+                </div>
+                
+                <div class="content">
+                    <h2>✅ ¡Email Confirmado!</h2>
+                    
+                    <p>Tu correo ha sido verificado exitosamente. Abriendo tu app...</p>
+                    
+                    <div style="text-align: center;">
+                        <div class="spinner"></div>
+                        <p id="message" style="color: #667eea; font-weight: 600;">Abriendo MisBoletas...</p>
+                    </div>
+                    
+                    <div id="error" class="error"></div>
+                    
+                    <p style="margin-top: 30px;">
+                        <strong>Si la app no se abre automáticamente:</strong>
+                    </p>
+                    
+                    <button class="button" onclick="openApp()">📱 Abrir App</button>
+                </div>
+                
+                <div class="footer">
+                    <p>© 2025 MisBoletas. Todos los derechos reservados.</p>
+                    <p><a href="https://misboletas.tech">Visita nuestro sitio web</a></p>
+                </div>
+            </div>
+
             <script>
-                window.location.href = '{deep_link}';
+                const deepLink = '{deep_link}';
+
+                function openApp() {{
+                    window.location.href = deepLink;
+                    setTimeout(() => {{
+                        document.getElementById('message').style.display = 'none';
+                        document.getElementById('error').style.display = 'block';
+                        document.getElementById('error').textContent = '❌ No se pudo abrir la app. Por favor, asegúrate de tenerla instalada.';
+                    }}, 3000);
+                }}
+
+                // Intentar abrir automáticamente al cargar la página
+                window.addEventListener('load', () => {{
+                    setTimeout(openApp, 500);
+                }});
             </script>
         </body>
         </html>
         """
-        return HTMLResponse(content=success_html)
+        return HTMLResponse(content=success_html, status_code=200)
 
     except Exception as e:
-        logger.error(f"[ERROR] Confirm endpoint failed: {str(e)}")
-        return HTMLResponse(
-            content="<h1>❌ Error</h1><p>Por favor intenta más tarde.</p>",
-            status_code=500,
-        )
+        logger.error(f"[ERROR] Confirm bridge failed: {str(e)}")
+        error_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>Error</title>
+            <style>
+                body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }}
+                .container {{ max-width: 600px; margin: 50px auto; background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }}
+                h1 {{ color: #d32f2f; }}
+                p {{ color: #666; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>⏰ Error Procesando Confirmación</h1>
+                <p>Por favor, intenta nuevamente o contacta a soporte.</p>
+            </div>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=error_html, status_code=500)
 
 
-@router.get("/reset-password", summary="Puente: Restablecer contraseña")
+@router.get(
+    "/reset-password",
+    summary="Puente: Restablecer contraseña",
+)
 async def reset_password_bridge(
-    access_token: str = Query(None),
-    refresh_token: str = Query(None),
-    user_id: str = Query(None),
+    code: str = Query(None),
+    token: str = Query(None),
     email: str = Query(None),
     type: str = Query(None),
 ):
     """
-    Puente para restablecer contraseña.
-    Supabase puede enviar tokens en el hash, o podemos abrir la app con el email.
+    🌉 PUENTE: Endpoint para recuperación de contraseña.
+
+    Similar a /confirm pero para el flujo de reset password.
     """
     try:
-        logger.info(f"[PUENTE] Reset password bridge - email={email}, type={type}")
+        logger.info(f"[🌉 PUENTE] Reset password bridge - email={email}, type={type}")
 
-        # Si Supabase envió tokens de recovery, usarlos
-        if access_token and type == "recovery":
-            logger.info(f"[OK] Recovery tokens recibidos de Supabase")
-            # Pasar access_token como 'token' para que la app lo reciba correctamente
-            deep_link = f"misboletas://reset-password?token={access_token}"
-        elif email:
-            # Si solo tenemos email, abrir la app para reset password
-            deep_link = f"misboletas://reset-password?email={email}"
-        else:
-            logger.error("[ERROR] No parámetros válidos")
-            return HTMLResponse(
-                content="<h1>❌ Parámetros inválidos</h1>",
-                status_code=400,
-            )
+        # Obtener sesión de Supabase (después de verificar recovery token)
+        try:
+            session = supabase.client.auth.get_session()
+            if session and session.user and session.session:
+                logger.info(f"[✅ PUENTE] Sesión recovery encontrada")
+                access_token = session.session.access_token
+                user_email = session.user.email or email
+                
+                # Para reset password, usar el access_token como token
+                deep_link = f"misboletas://reset-password?token={access_token}&email={user_email}"
+            else:
+                # Si no hay sesión, algo salió mal
+                error_html = """
+                <html>
+                <body style="text-align: center; padding: 50px; font-family: Arial;">
+                    <h1>❌ Error de Verificación</h1>
+                    <p>No se pudo verificar tu identidad. Por favor, intenta solicitando un nuevo enlace.</p>
+                </body>
+                </html>
+                """
+                return HTMLResponse(content=error_html, status_code=400)
+        except Exception as e:
+            logger.error(f"[ERROR] Reset password session failed: {e}")
+            error_html = """
+            <html>
+            <body style="text-align: center; padding: 50px; font-family: Arial;">
+                <h1>❌ Error</h1>
+                <p>Por favor, intenta más tarde.</p>
+            </body>
+            </html>
+            """
+            return HTMLResponse(content=error_html, status_code=500)
 
-        success_html = f"""
+        # HTML para redirigir a reset password
+        html = f"""
         <!DOCTYPE html>
         <html>
         <head>
             <meta charset="utf-8">
             <title>Restablecer Contraseña</title>
+        </head>
+        <body style="text-align: center; padding: 50px; font-family: Arial;">
+            <h2>Redirigiendo...</h2>
             <script>
                 window.location.href = '{deep_link}';
             </script>
-        </head>
-        <body>
-            <p>Redirigiendo...</p>
         </body>
         </html>
         """
-        return HTMLResponse(content=success_html)
+        return HTMLResponse(content=html, status_code=200)
 
     except Exception as e:
         logger.error(f"[ERROR] Reset password bridge failed: {str(e)}")
-        return HTMLResponse(content="<h1>Error</h1>", status_code=500)
+        return HTMLResponse(
+            content="<html><body><h1>Error</h1></body></html>",
+            status_code=500,
+        )

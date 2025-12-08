@@ -77,13 +77,13 @@ async def register(data: UserRegisterRequest):
         logger.info("[AUTH] Registro iniciado")
 
         # ✅ URL DEL PUENTE (DEFINITIVA Y PROFESIONAL)
-        # Este es el endpoint que verifica el OTP y abre la app
-        puente_url = "https://api.misboletas.tech/api/v1/users/confirm"
+        # Este es el endpoint en /auth/confirm que verifica y abre la app
+        puente_url = "https://api.misboletas.tech/api/v1/auth/confirm"
 
         # Preparar opciones de autenticación para Supabase
         auth_options = {
             "data": {"full_name": data.nombre or data.correo.split("@")[0]},
-            "email_redirect_to": puente_url,  # ✅ SIEMPRE USAR EL PUENTE
+            "email_redirect_to": puente_url,  # ✅ SIEMPRE USAR EL PUENTE EN /auth/confirm
         }
 
         logger.info("[AUTH] Email de confirmación configurado")
@@ -257,15 +257,20 @@ async def verify_otp(data: VerifyOTPRequest):
     "/confirm",
     summary="Puente para confirmar email desde enlaces",
 )
-async def confirm_email(token: str, email: str, type: str = "signup"):
+async def confirm_email(
+    token: Optional[str] = None,
+    email: Optional[str] = None,
+    type: str = "signup",
+    code: Optional[str] = None,
+):
     """
     🌉 PUENTE: Endpoint que actúa como intermediario entre el email y la app.
 
     FLUJO:
-    1. Email contiene: https://api.misboletas.tech/api/v1/users/confirm?token=XXX&email=YYY&type=signup
+    1. Supabase envía email con link a este endpoint
     2. Usuario hace click → Llama este endpoint
     3. Este endpoint:
-       - Verifica el OTP con Supabase
+       - Verifica la sesión con Supabase (token en cookies)
        - Si es válido → Devuelve HTML con JS que abre la app
        - Si es inválido → Muestra error amigable
 
@@ -276,18 +281,59 @@ async def confirm_email(token: str, email: str, type: str = "signup"):
     - Funciona en emails, SMS, cualquier lado
     """
     try:
-        logger.info(f"[🌉 PUENTE] Confirm endpoint called: email={email}, type={type}")
+        logger.info(f"[🌉 PUENTE] Confirm endpoint called: email={email}, type={type}, code={code}")
 
-        # Verificar el OTP con Supabase
-        res = supabase.client.auth.verify_otp(
-            {
-                "email": email,
-                "token": token,
-                "type": type,
-            }
-        )
+        # Supabase redirige después de verificar el token
+        # Usamos code o token, ambos pueden venir
+        verification_token = code or token
+        
+        if not email:
+            logger.error("[ERROR] Email no proporcionado")
+            error_html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Error de Confirmación</title>
+                <style>
+                    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }}
+                    .container {{ max-width: 600px; margin: 50px auto; background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }}
+                    h1 {{ color: #d32f2f; margin: 0 0 10px 0; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>⏰ Error: Email no proporcionado</h1>
+                </div>
+            </body>
+            </html>
+            """
+            return HTMLResponse(content=error_html, status_code=400)
 
-        if not res.user or not res.session:
+        # Si tenemos token, verificar el OTP con Supabase
+        if verification_token:
+            try:
+                logger.info(f"[🌉 PUENTE] Verificando OTP con Supabase")
+                res = supabase.client.auth.verify_otp(
+                    {
+                        "email": email,
+                        "token": verification_token,
+                        "type": type,
+                    }
+                )
+            except Exception as e:
+                logger.error(f"[ERROR] Error verificando OTP: {e}")
+                res = None
+        else:
+            # Si no hay token, intentar obtener la sesión actual de Supabase
+            try:
+                logger.info(f"[🌉 PUENTE] Obteniendo sesión actual de Supabase")
+                res = supabase.client.auth.get_session()
+            except Exception as e:
+                logger.error(f"[ERROR] Error obteniendo sesión: {e}")
+                res = None
+
+        if not res or not res.user or not res.session:
             logger.error(f"[ERROR] OTP verification failed for {email}")
             # Retornar HTML de error
             error_html = f"""
