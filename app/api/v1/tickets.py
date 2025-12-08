@@ -134,6 +134,7 @@ async def create_ticket(
                 logger.warning(f"[WARNING] Failed to send email for ticket: {email_error}")
                 # No lanzar excepción aquí, el ticket fue creado exitosamente
 
+        # Retornar el ticket creado
         return TicketRead(**ticket)
 
     except HTTPException:
