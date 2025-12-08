@@ -340,43 +340,150 @@ async def confirm_email(token: str, email: str, type: str = "signup"):
         <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Confirmando...</title>
+            <title>¡Bienvenido a MisBoletas!</title>
             <style>
-                body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; }}
-                .container {{ background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); text-align: center; max-width: 500px; }}
-                h1 {{ color: #333; margin: 0 0 10px 0; }}
-                p {{ color: #666; font-size: 16px; line-height: 1.6; margin: 10px 0; }}
-                .spinner {{ display: inline-block; width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite; margin: 20px 0; }}
-                @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
-                .button {{ display: inline-block; background: #667eea; color: white; padding: 12px 30px; border-radius: 6px; text-decoration: none; margin-top: 20px; border: none; cursor: pointer; font-size: 16px; }}
-                .button:hover {{ background: #764ba2; }}
-                .error {{ display: none; color: #d32f2f; }}
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+                    margin: 0;
+                    padding: 0;
+                    background-color: #f5f5f5;
+                }}
+                .container {{
+                    max-width: 600px;
+                    margin: 0 auto;
+                    background-color: #ffffff;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                    overflow: hidden;
+                }}
+                .header {{
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    padding: 40px 20px;
+                    text-align: center;
+                    color: white;
+                }}
+                .header h1 {{
+                    margin: 0;
+                    font-size: 28px;
+                    font-weight: 600;
+                }}
+                .content {{
+                    padding: 40px 30px;
+                }}
+                .content h2 {{
+                    color: #333333;
+                    font-size: 20px;
+                    margin: 0 0 15px 0;
+                }}
+                .content p {{
+                    color: #666666;
+                    font-size: 14px;
+                    line-height: 1.6;
+                    margin: 10px 0;
+                }}
+                .button {{
+                    display: inline-block;
+                    background-color: #667eea;
+                    color: white;
+                    padding: 16px 40px;
+                    border-radius: 6px;
+                    text-decoration: none;
+                    font-weight: 600;
+                    font-size: 16px;
+                    margin: 25px 0;
+                    border: 2px solid #667eea;
+                    cursor: pointer;
+                }}
+                .button:hover {{
+                    background-color: #764ba2;
+                    border-color: #764ba2;
+                }}
+                .footer {{
+                    background-color: #f9f9f9;
+                    padding: 20px 30px;
+                    text-align: center;
+                    border-top: 1px solid #eeeeee;
+                }}
+                .footer p {{
+                    color: #999999;
+                    font-size: 12px;
+                    margin: 5px 0;
+                }}
+                .footer a {{
+                    color: #667eea;
+                    text-decoration: none;
+                }}
+                .spinner {{
+                    display: inline-block;
+                    width: 40px;
+                    height: 40px;
+                    border: 4px solid #f3f3f3;
+                    border-top: 4px solid #667eea;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                    margin: 20px 0;
+                }}
+                @keyframes spin {{
+                    0% {{ transform: rotate(0deg); }}
+                    100% {{ transform: rotate(360deg); }}
+                }}
+                .error {{
+                    display: none;
+                    background-color: #f8d7da;
+                    border-left: 4px solid #dc3545;
+                    padding: 12px 15px;
+                    margin: 15px 0;
+                    border-radius: 4px;
+                    font-size: 13px;
+                    color: #721c24;
+                }}
             </style>
         </head>
         <body>
             <div class="container">
-                <h1>✅ ¡Email Confirmado!</h1>
-                <div class="spinner"></div>
-                <p>Abriendo tu app...</p>
-                <p id="error" class="error"></p>
-                <p style="font-size: 14px; color: #999; margin-top: 30px;">Si la app no se abre automáticamente, presiona el botón:</p>
-                <button class="button" onclick="openApp()">Abrir App</button>
+                <div class="header">
+                    <h1>¡Bienvenido a MisBoletas!</h1>
+                </div>
+                
+                <div class="content">
+                    <h2>✅ ¡Email Confirmado!</h2>
+                    
+                    <p>Tu correo ha sido confirmado exitosamente. Ahora estamos abriendo tu app...</p>
+                    
+                    <div style="text-align: center;">
+                        <div class="spinner"></div>
+                        <p id="message" style="color: #667eea; font-weight: 600;">Abriendo tu app...</p>
+                    </div>
+                    
+                    <div id="error" class="error"></div>
+                    
+                    <p style="text-align: center; margin-top: 30px;">
+                        <strong>Si la app no se abre automáticamente, presiona el botón:</strong>
+                    </p>
+                    
+                    <div style="text-align: center;">
+                        <button class="button" onclick="openApp()">📱 Abrir App</button>
+                    </div>
+                </div>
+                
+                <div class="footer">
+                    <p>© 2025 MisBoletas. Todos los derechos reservados.</p>
+                    <p><a href="https://misboletas.tech">Visita nuestro sitio web</a></p>
+                </div>
             </div>
 
             <script>
                 const deepLink = '{deep_link}';
 
-                // Intentar abrir el deep link
                 function openApp() {{
                     window.location.href = deepLink;
-                    // Si no se abre en 3 segundos, mostrar error
                     setTimeout(() => {{
+                        document.getElementById('message').style.display = 'none';
                         document.getElementById('error').style.display = 'block';
-                        document.getElementById('error').textContent = 'No se pudo abrir la app. Asegúrate de tenerla instalada.';
+                        document.getElementById('error').textContent = '❌ No se pudo abrir la app. Por favor, asegúrate de tenerla instalada.';
                     }}, 3000);
                 }}
 
-                // Intentar abrir automáticamente al cargar
                 window.addEventListener('load', () => {{
                     setTimeout(openApp, 500);
                 }});
