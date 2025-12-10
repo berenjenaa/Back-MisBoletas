@@ -1,5 +1,6 @@
 import logging
 import json
+import re
 from fastapi import HTTPException, status, UploadFile
 from app.core.config import settings
 
@@ -214,6 +215,78 @@ async def process_boleta_from_gcs_uri(gcs_uri: str, user_id: str = None) -> dict
     }
 
 
+def parse_receipt_data(raw_text: str) -> dict:
+    """
+    Extrae datos estructurados de una boleta usando Regex.
+    
+    Args:
+        raw_text: Texto crudo del OCR
+    
+    Returns:
+        Dict con: total, fecha, comercio, texto_limpio
+    """
+    if not raw_text:
+        return {"total": None, "fecha": None, "comercio": None, "texto_limpio": ""}
+    
+    texto = raw_text.lower().strip()
+    
+    # Extracción de TOTAL - Priorizar palabras clave
+    total = None
+    
+    # Patrón: total/monto/suma seguido de número
+    # Captura números como: 21.690, 21,690, 21690
+    patron_total = r'(?:total|monto|suma|pagar|neto)\s*[:\s]+\$?\s*(\d+(?:[.,]\d{3})*(?:[.,]\d{2})?)'
+    matches = re.finditer(patron_total, texto)
+    montos = []
+    
+    for match in matches:
+        valor_str = match.group(1)
+        # Limpiar separadores: 21.690 o 21,690 -> 21690
+        valor_str = valor_str.replace('.', '').replace(',', '')
+        try:
+            valor = int(valor_str)
+            if 500 < valor < 100000000:  # Rango realista
+                montos.append(valor)
+        except (ValueError, IndexError):
+            pass
+    
+    if montos:
+        total = max(montos)
+    
+    # Extracción de FECHA
+    fecha = None
+    patrones_fecha = [
+        r'(?:fecha|date)\s*[:\s]+(\d{1,2})[/-](\d{1,2})[/-](\d{4})',
+        r'(\d{1,2})[/-](\d{1,2})[/-](\d{4})',
+    ]
+    
+    for patron in patrones_fecha:
+        match = re.search(patron, texto)
+        if match:
+            # Extraer la fecha completa (sin capturar los grupos)
+            fecha = match.group(0).split()[-1] if ' ' in match.group(0) else match.group(0)
+            break
+    
+    # Extracción de COMERCIO (primeras 3 líneas, excluyen RUT)
+    lineas = raw_text.split('\n')
+    comercio = None
+    for i in range(min(3, len(lineas))):
+        linea = lineas[i].strip()
+        if (linea and len(linea) > 3 and 
+            not re.match(r'^\d+', linea) and 
+            'rut' not in linea.lower() and
+            'boleta' not in linea.lower()):
+            comercio = linea
+            break
+    
+    return {
+        "total": total,
+        "fecha": fecha,
+        "comercio": comercio,
+        "texto_limpio": texto,
+    }
+
+
 async def background_process_ocr(documento_id: str, gcs_uri: str, user_id: str) -> None:
     """
     Procesa OCR en background sin bloquear la respuesta HTTP.
@@ -243,10 +316,16 @@ async def background_process_ocr(documento_id: str, gcs_uri: str, user_id: str) 
         # 2. Procesar OCR
         ocr_result = await process_boleta_from_gcs_uri(gcs_uri=gcs_uri, user_id=user_id)
 
-        # 3. Guardar resultado en Supabase
+        # 3. Extraer datos estructurados adicionales
+        parsed_data = parse_receipt_data(ocr_result.get("texto_completo", ""))
+        ocr_result["datos_parseados"] = parsed_data
+
+        # 4. Guardar resultado en Supabase
         supabase_admin.get_table("documentos").update(
             {
                 "metadata_ocr": json.dumps(ocr_result),
+                "numero_boleta": parsed_data.get("numero_boleta"),
+                "fecha_emision": parsed_data.get("fecha"),
                 "estado_ocr": "completado",
                 "error_ocr": None,
             }
