@@ -20,7 +20,7 @@ async def procesar_boleta_ocr(
 ):
     """
     Recibe una imagen (JPG, PNG) o PDF de una boleta, la procesa
-    con Google Document AI y devuelve los datos estructurados.
+    con Google Document AI y devuelve los datos estructurados + parseados.
 
     Args:
         file: Imagen o PDF de boleta
@@ -31,10 +31,11 @@ async def procesar_boleta_ocr(
             "file_name": "boleta.pdf",
             "content_type": "application/pdf",
             "message": "Procesada exitosamente",
-            "ocr_results": {
-                "texto_extraído": "...",
-                "entidades": [...],
-                "confidencia": 0.95
+            "ocr_results": {...},
+            "parsed_data": {
+                "total": 25490,
+                "fecha": "10/12/2024",
+                "comercio": "DISTRIBUIDORA LÍDER"
             }
         }
     """
@@ -54,8 +55,11 @@ async def procesar_boleta_ocr(
             file=file, user_id=current_user.id  # UUID string
         )
 
-        # 3. Guardar referencia en Supabase (opcional)
-        # Puedes guardar el resultado del OCR si lo necesitas
+        # 3. Parsear los datos extraídos (nuevo)
+        texto_completo = ocr_results.get("texto_completo", "")
+        parsed_data = ocr_service.parse_receipt_data(texto_completo)
+
+        # 4. Guardar referencia en Supabase (opcional)
         try:
             supabase.get_table("ocr_logs").insert(
                 {
@@ -63,18 +67,19 @@ async def procesar_boleta_ocr(
                     "file_name": file.filename,
                     "content_type": file.content_type,
                     "resultado": ocr_results,
+                    "parsed_data": parsed_data,
                 }
             ).execute()
         except Exception as e:
-            print(f"⚠️  No se pudo guardar log de OCR: {e}")
-            # No es crítico, continuar
+            logging.warning(f"⚠️  No se pudo guardar log de OCR: {e}")
 
-        # 4. Devolver respuesta
+        # 5. Devolver respuesta con datos parseados
         return {
             "file_name": file.filename,
             "content_type": file.content_type,
             "message": "Boleta procesada exitosamente con OCR",
             "ocr_results": ocr_results,
+            "parsed_data": parsed_data,
         }
 
     except HTTPException:

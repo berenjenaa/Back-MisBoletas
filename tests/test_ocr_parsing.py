@@ -25,7 +25,7 @@ def test_parse_receipt_total():
     
     TOTAL              $21.690
     """
-    
+
     result = parse_receipt_data(texto)
     print("Test Total:")
     print(f"  Input: {texto[:50]}...")
@@ -44,7 +44,7 @@ def test_parse_receipt_fecha():
     Artículos vendidos
     Total: $5.000
     """
-    
+
     result = parse_receipt_data(texto)
     print("Test Fecha:")
     print(f"  Input: {texto[:50]}...")
@@ -66,7 +66,7 @@ def test_parse_receipt_comercio():
     
     Total: $8.990
     """
-    
+
     result = parse_receipt_data(texto)
     print("Test Comercio:")
     print(f"  Input: {texto[:50]}...")
@@ -108,7 +108,7 @@ def test_parse_receipt_real():
     
     Gracias por su compra
     """
-    
+
     result = parse_receipt_data(texto)
     print("Test Boleta Real:")
     print(f"  Input: {texto[:100]}...")
@@ -117,7 +117,7 @@ def test_parse_receipt_real():
     print(f"    - Fecha: {result['fecha']}")
     print(f"    - Comercio: {result['comercio']}")
     print(f"    - Texto limpio: {result['texto_limpio'][:50]}...")
-    
+
     assert result["total"] is not None, "Total debe ser extraído"
     assert result["fecha"] is not None, "Fecha debe ser extraída"
     assert result["comercio"] is not None, "Comercio debe ser extraído"
@@ -144,7 +144,7 @@ def test_parse_receipt_formato_alternativo():
     
     Total a pagar: $10.000
     """
-    
+
     result = parse_receipt_data(texto)
     print("Test Fecha Alternativa:")
     print(f"  Input: {texto[:50]}...")
@@ -158,7 +158,7 @@ if __name__ == "__main__":
     print("=" * 60)
     print("PRUEBAS: parse_receipt_data()")
     print("=" * 60 + "\n")
-    
+
     try:
         test_parse_receipt_total()
         test_parse_receipt_fecha()
@@ -166,7 +166,7 @@ if __name__ == "__main__":
         test_parse_receipt_real()
         test_parse_receipt_empty()
         test_parse_receipt_formato_alternativo()
-        
+
         print("=" * 60)
         print("✅ TODAS LAS PRUEBAS PASARON")
         print("=" * 60)
@@ -180,5 +180,6 @@ if __name__ == "__main__":
         print(f"❌ ERROR INESPERADO: {e}")
         print("=" * 60)
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
