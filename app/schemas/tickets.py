@@ -1,33 +1,34 @@
-# En app/schemas/tickets.py
-
-from pydantic import BaseModel, Field, ConfigDict
-from datetime import datetime
+from pydantic import BaseModel
 from typing import Optional
 from uuid import UUID
+from datetime import datetime
 
 
-# ===== SCHEMAS PARA TICKETS DE SOPORTE (SUPABASE) =====
-
-
-class TicketRead(BaseModel):
-    """Schema para leer un ticket desde Supabase."""
-
-    id_ticket: UUID
-    id_usuario: UUID
+# --- Modelo BASE (Datos comunes) ---
+class TicketBase(BaseModel):
     asunto: str
     mensaje: str
-    estado: str  # 'abierto', 'en_proceso', 'resuelto', 'cerrado'
-    prioridad: str  # 'baja', 'media', 'alta'
-    respuesta_admin: Optional[str] = None
-    fecha_creacion: Optional[str] = None
-    fecha_actualizacion: Optional[str] = None
-
-    model_config = ConfigDict(from_attributes=True)
 
 
-class TicketCreate(BaseModel):
-    """Schema para crear un nuevo ticket."""
+# --- Modelo para CREAR (Lo que envía el usuario) ---
+class TicketCreate(TicketBase):
+    pass
+    # ❌ ELIMINAMOS 'prioridad' de aquí.
+    # El usuario solo envía asunto y mensaje.
 
-    asunto: str = Field(..., min_length=1, max_length=255)
-    mensaje: str = Field(..., min_length=1, max_length=5000)
-    prioridad: Optional[str] = Field("media", pattern="^(baja|media|alta)$")
+
+# --- Modelo para RESPUESTA (Lo que devuelve la API) ---
+class TicketResponse(TicketBase):
+    id_ticket: UUID
+    user_id: str
+    prioridad: str  # Aquí sí se muestra (la asigna el sistema)
+    estado: str
+    fecha_creacion: datetime
+    fecha_cierre: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+
+# Alias para lectura (retrocompatibilidad)
+TicketRead = TicketResponse

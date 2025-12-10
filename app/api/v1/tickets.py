@@ -1,6 +1,4 @@
-# En app/api/v1/tickets.py
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from typing import List
 from uuid import UUID
 import logging
@@ -9,21 +7,70 @@ from datetime import datetime
 from app.schemas.tickets import TicketRead, TicketCreate
 from app.db.supabase import supabase_admin
 from app.core.config import settings
-from app.core.dependencies import (
-    get_current_user_id,
-    get_current_user,
-    get_active_user_id,
-)
+from app.core.dependencies import get_current_user, get_active_user_id, CurrentUser
 from app.core.email_config import send_email
-from app.core.dependencies import CurrentUser
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tickets")
 
+# =======================================================================
+# === FUNCIONES DE NOTIFICACIÓN
+# =======================================================================
+
+
+async def notificar_ticket_creado(
+    datos_email: dict, email_usuario: str, ticket_id: str
+):
+    """
+    Envía las alertas. Recibe un diccionario 'datos_email' que YA debe incluir la prioridad.
+    """
+    try:
+        # --- CORREO 1: ALERTA A SOPORTE ---
+        html_soporte = f"""
+        <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e74c3c; border-radius: 8px;">
+            <h2 style="color: #c0392b;">🔥 Nuevo Ticket de Soporte</h2>
+            <p><strong>Usuario:</strong> {email_usuario}</p>
+            <p><strong>ID Ticket:</strong> {ticket_id}</p>
+            <p><strong>Prioridad:</strong> <span style="font-weight:bold; color:red">{datos_email['prioridad']}</span></p>
+            <hr>
+            <h3>Mensaje:</h3>
+            <p style="background: #fdf2f2; padding: 15px; border-left: 4px solid #e74c3c;">{datos_email['mensaje']}</p>
+        </div>
+        """
+
+        await send_email(
+            recipient_email=settings.MAIL_SUPPORT,
+            subject=f"[Soporte] {datos_email['asunto']} (P: {datos_email['prioridad']})",
+            html_content=html_soporte,
+        )
+        logger.info(f"✅ Alerta enviada a soporte: {settings.MAIL_SUPPORT}")
+
+        # --- CORREO 2: CONFIRMACIÓN AL USUARIO ---
+        html_usuario = f"""
+        <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+            <h2 style="color: #2c3e50;">Ticket Recibido</h2>
+            <p>Hola,</p>
+            <p>Hemos recibido tu solicitud "{datos_email['asunto']}".</p>
+            <p>Nuestro equipo ya ha sido notificado y revisará tu caso.</p>
+            <p><strong>ID de seguimiento:</strong> {ticket_id}</p>
+            <hr>
+            <p style="font-size: 12px; color: #999;">Equipo MisBoletas</p>
+        </div>
+        """
+
+        await send_email(
+            recipient_email=email_usuario,
+            subject=f"Recibimos tu ticket: {datos_email['asunto']}",
+            html_content=html_usuario,
+        )
+
+    except Exception as e:
+        logger.error(f"❌ Error enviando notificaciones: {e}")
+
 
 # =======================================================================
-# === ENDPOINTS DE TICKETS DE SOPORTE (SUPABASE)
+# === ENDPOINTS
 # =======================================================================
 
 
@@ -35,105 +82,48 @@ router = APIRouter(prefix="/tickets")
 )
 async def create_ticket(
     ticket_data: TicketCreate,
+    background_tasks: BackgroundTasks,
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    """
-    Crea un nuevo ticket de soporte.
-
-    El usuario autenticado puede reportar un problema con asunto, mensaje y prioridad.
-    El estado inicial es 'abierto'.
-    Además, se envía un email de confirmación.
-    """
     try:
         user_id = current_user.id
         email_usuario = current_user.email
 
-        # 1. Insertar ticket en Supabase
+        # 1. Definir prioridad por defecto (Regla de Negocio)
+        PRIORIDAD_DEFAULT = "media"
+
+        # 2. Insertar en Supabase
         ticket_payload = {
             "id_usuario": str(user_id),
             "asunto": ticket_data.asunto,
             "mensaje": ticket_data.mensaje,
-            "prioridad": ticket_data.prioridad or "media",
+            "prioridad": PRIORIDAD_DEFAULT,  # <--- ASIGNACIÓN AUTOMÁTICA
             "estado": "abierto",
+            "fecha_creacion": datetime.now().isoformat(),
         }
+
         response = supabase_admin.get_table("tickets").insert(ticket_payload).execute()
 
         if not response.data:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Error al crear el ticket",
-            )
+            raise HTTPException(status_code=400, detail="Error al guardar el ticket")
 
-        ticket = response.data[0]
+        new_ticket = response.data[0]
+        ticket_id = new_ticket.get("id_ticket") or new_ticket.get("id")
 
-        # 2. Enviar email de confirmación de forma asíncrona
-        try:
-            asunto_email = f"Nuevo Ticket de {email_usuario}: {ticket_data.asunto}"
+        # 3. Preparar datos para el correo (Inyectando la prioridad)
+        # Como ticket_data (schema) ya no tiene prioridad, creamos un dict manual
+        datos_para_email = ticket_data.dict()
+        datos_para_email["prioridad"] = PRIORIDAD_DEFAULT  # <--- Agregamos lo que falta
 
-            # Crear el mensaje HTML del email
-            mensaje_html = f"""
-            <html>
-                <head>
-                    <style>
-                        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-                        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; }}
-                        .header {{ background-color: #2c3e50; color: white; padding: 20px; border-radius: 5px 5px 0 0; }}
-                        .content {{ background-color: white; padding: 20px; border-radius: 0 0 5px 5px; }}
-                        .footer {{ margin-top: 20px; font-size: 12px; color: #666; text-align: center; }}
-                        .ticket-id {{ background-color: #ecf0f1; padding: 10px; border-radius: 5px; margin: 10px 0; font-weight: bold; }}
-                        .prioridad {{ display: inline-block; padding: 5px 10px; border-radius: 3px; font-weight: bold; }}
-                        .prioridad-baja {{ background-color: #3498db; color: white; }}
-                        .prioridad-media {{ background-color: #f39c12; color: white; }}
-                        .prioridad-alta {{ background-color: #e74c3c; color: white; }}
-                    </style>
-                </head>
-                <body>
-                    <div class="container">
-                        <div class="header">
-                            <h1>✓ Ticket de Soporte Registrado</h1>
-                        </div>
-                        <div class="content">
-                            <p>¡Hola!</p>
-                            <p>Tu ticket de soporte ha sido registrado exitosamente. Nuestro equipo te contactará pronto.</p>
-                            
-                            <div class="ticket-id">
-                                ID del Ticket: {ticket['id_ticket']}
-                            </div>
-                            
-                            <h3>Detalles del Ticket:</h3>
-                            <ul>
-                                <li><strong>Asunto:</strong> {ticket_data.asunto}</li>
-                                <li><strong>Mensaje:</strong> {ticket_data.mensaje}</li>
-                                <li><strong>Prioridad:</strong> <span class="prioridad prioridad-{ticket_data.prioridad}">{ticket_data.prioridad}</span></li>
-                                <li><strong>Estado:</strong> Abierto</li>
-                                <li><strong>Fecha de Creación:</strong> {ticket['fecha_creacion']}</li>
-                            </ul>
-                            
-                            <p>Puedes verificar el estado de tu ticket en cualquier momento en nuestra plataforma.</p>
-                        </div>
-                        <div class="footer">
-                            <p>Este es un email automático, por favor no responder a este correo.</p>
-                            <p>MisBoletas Support Team</p>
-                        </div>
-                    </div>
-                </body>
-            </html>
-            """
+        # 4. Enviar correos
+        background_tasks.add_task(
+            notificar_ticket_creado,
+            datos_email=datos_para_email,  # Pasamos el dict completo
+            email_usuario=email_usuario,
+            ticket_id=str(ticket_id),
+        )
 
-            # Enviar email de confirmación
-            await send_email(
-                recipient_email=email_usuario,
-                subject=asunto_email,
-                html_content=mensaje_html,
-            )
-            logger.info(
-                f"[INFO] Email sent for ticket {ticket['id_ticket']} to {email_usuario}"
-            )
-        except Exception as email_error:
-            logger.warning(f"[WARNING] Failed to send email for ticket: {email_error}")
-            # No lanzar excepción aquí, el ticket fue creado exitosamente
-
-        return TicketRead(**ticket)
+        return TicketRead(**new_ticket)
 
     except HTTPException:
         raise
@@ -141,74 +131,33 @@ async def create_ticket(
         logger.error(f"[ERROR] Failed to create ticket: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al crear el ticket. Por favor intenta más tarde.",
+            detail="Error interno al procesar el ticket",
         )
 
 
-@router.get("", response_model=List[TicketRead], summary="Listar mis tickets")
-async def get_tickets(
-    user_id: UUID = Depends(get_active_user_id),
-):
-    """
-    Obtiene todos los tickets de soporte del usuario autenticado.
-
-    Solo el usuario puede ver sus propios tickets.
-    Los tickets se ordenan por fecha de creación (más recientes primero).
-    """
-    try:
-        response = (
-            supabase_admin.get_table("tickets")
-            .select("*")
-            .eq("id_usuario", str(user_id))
-            .order("fecha_creacion", desc=True)
-            .execute()
-        )
-
-        tickets = response.data or []
-        return [TicketRead(**t) for t in tickets]
-
-    except Exception as e:
-        logger.error(f"[ERROR] Failed to list tickets: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener tickets. Por favor intenta más tarde.",
-        )
+# (Endpoints GET se mantienen igual...)
+@router.get("", response_model=List[TicketRead])
+async def get_tickets(user_id: UUID = Depends(get_active_user_id)):
+    response = (
+        supabase_admin.get_table("tickets")
+        .select("*")
+        .eq("id_usuario", str(user_id))
+        .order("fecha_creacion", desc=True)
+        .execute()
+    )
+    return [TicketRead(**t) for t in (response.data or [])]
 
 
-@router.get(
-    "/{ticket_id}", response_model=TicketRead, summary="Obtener un ticket por ID"
-)
-async def get_ticket(
-    ticket_id: UUID,
-    user_id: UUID = Depends(get_active_user_id),
-):
-    """
-    Obtiene un ticket específico por ID (con verificación de ownership).
-    """
-    try:
-        response = (
-            supabase_admin.get_table("tickets")
-            .select("*")
-            .eq("id_ticket", str(ticket_id))
-            .eq("id_usuario", str(user_id))
-            .single()
-            .execute()
-        )
-
-        if not response.data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Ticket no encontrado",
-            )
-
-        ticket = response.data[0]
-        return TicketRead(**ticket)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[ERROR] Failed to get ticket: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener el ticket. Por favor intenta más tarde.",
-        )
+@router.get("/{ticket_id}", response_model=TicketRead)
+async def get_ticket(ticket_id: UUID, user_id: UUID = Depends(get_active_user_id)):
+    response = (
+        supabase_admin.get_table("tickets")
+        .select("*")
+        .eq("id_ticket", str(ticket_id))
+        .eq("id_usuario", str(user_id))
+        .single()
+        .execute()
+    )
+    if not response.data:
+        raise HTTPException(status_code=404, detail="No encontrado")
+    return TicketRead(**response.data[0])

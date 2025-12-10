@@ -50,6 +50,7 @@ class UserProfileResponse(BaseModel):
     nombre_usuario: Optional[str] = None
     avatar_url: Optional[str] = None
     fecha_registro: Optional[str] = None
+    id_rol: Optional[int] = None
 
 
 # =======================================================================
@@ -600,6 +601,7 @@ async def read_users_me(user_id: UUID = Depends(get_active_user_id)):
             "nombre_usuario": perfil.get("nombre_usuario"),
             "avatar_url": perfil.get("avatar_url"),
             "fecha_registro": perfil.get("fecha_registro"),
+            "id_rol": perfil.get("id_rol"),
         }
 
     except Exception as e:
