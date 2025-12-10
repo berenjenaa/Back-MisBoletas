@@ -13,6 +13,34 @@ from app.services import ocr_service
 router = APIRouter()
 
 
+def validate_file_magic_bytes(file_bytes: bytes) -> str:
+    """
+    Valida Magic Bytes (primeros bytes) del archivo.
+    
+    Returns:
+        str: 'pdf', 'jpeg', 'png' si es válido
+        
+    Raises:
+        ValueError: Si el tipo de archivo no es válido
+    """
+    if len(file_bytes) < 4:
+        raise ValueError("Archivo muy pequeño")
+    
+    # PDF: %PDF (25 50 44 46)
+    if file_bytes[:4] == b'%PDF':
+        return 'pdf'
+    
+    # JPEG: FF D8 FF
+    if file_bytes[:3] == b'\xff\xd8\xff':
+        return 'jpeg'
+    
+    # PNG: 89 50 4E 47
+    if file_bytes[:4] == b'\x89PNG':
+        return 'png'
+    
+    raise ValueError("Tipo de archivo no soportado. Solo PDF, JPEG o PNG.")
+
+
 @router.post("/ocr/procesar-boleta", tags=["OCR"], summary="Procesar boleta con OCR")
 async def procesar_boleta_ocr(
     file: UploadFile = File(...),
@@ -39,27 +67,33 @@ async def procesar_boleta_ocr(
             }
         }
     """
-    # 1. Validar tipo de archivo
-    if (
-        not file.content_type.startswith("image/")
-        and file.content_type != "application/pdf"
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Tipo no soportado. Usa JPG, PNG o PDF.",
-        )
-
     try:
-        # 2. Procesar con Document AI
+        # 1. Leer los primeros bytes del archivo para validar Magic Bytes
+        file_bytes = await file.read(512)  # Leer primeros 512 bytes
+        
+        # Validar usando Magic Bytes (más seguro que content-type)
+        try:
+            file_type = validate_file_magic_bytes(file_bytes)
+            logging.info(f"✅ Archivo validado: {file_type}")
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            )
+        
+        # 2. Volver al inicio del archivo para que Google Vision lo procese
+        await file.seek(0)
+        
+        # 3. Procesar con Document AI
         ocr_results = await ocr_service.process_boleta_image(
-            file=file, user_id=current_user.id  # UUID string
+            file=file, user_id=current_user.id
         )
 
-        # 3. Parsear los datos extraídos (nuevo)
+        # 4. Parsear los datos extraídos
         texto_completo = ocr_results.get("texto_completo", "")
         parsed_data = ocr_service.parse_receipt_data(texto_completo)
 
-        # 4. Guardar referencia en Supabase (opcional)
+        # 5. Guardar referencia en Supabase (opcional)
         try:
             supabase.get_table("ocr_logs").insert(
                 {
@@ -73,7 +107,7 @@ async def procesar_boleta_ocr(
         except Exception as e:
             logging.warning(f"⚠️  No se pudo guardar log de OCR: {e}")
 
-        # 5. Devolver respuesta con datos parseados
+        # 6. Devolver respuesta con datos parseados
         return {
             "file_name": file.filename,
             "content_type": file.content_type,
@@ -96,7 +130,6 @@ async def procesar_boleta_ocr(
 async def ocr_health_check():
     """Verifica que el servicio de OCR está disponible."""
     try:
-        # Intentar obtener el procesador
         from app.core.config import settings
 
         if not settings.DOCUMENTAI_PROJECT_ID:
