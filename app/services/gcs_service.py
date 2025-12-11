@@ -11,6 +11,7 @@ from typing import Optional
 import uuid
 import os
 import logging
+import magic
 from datetime import timedelta
 
 logger = logging.getLogger(__name__)
@@ -57,20 +58,42 @@ class GCSService:
         self.bucket = self.client.bucket(settings.GCS_BUCKET_NAME)
 
     def _validate_file(self, file: UploadFile) -> None:
-        """Valida el archivo antes de subirlo."""
-        allowed_extensions = {".pdf", ".jpg", ".jpeg", ".png", ".gif", ".webp"}
-        file_extension = os.path.splitext(file.filename)[1].lower()
-
-        if file_extension not in allowed_extensions:
-            raise HTTPException(status_code=400, detail=f"Tipo de archivo no permitido")
-
+        """Valida el archivo usando detección MIME con python-magic."""
+        # Whitelist de MIME types permitidos
+        allowed_mimetypes = {"image/jpeg", "image/png", "application/pdf"}
+        
+        # Leer primeros 2048 bytes para detección MIME
+        file_header = file.file.read(2048)
+        file.file.seek(0)  # Resetear para no romper la subida
+        
+        if not file_header:
+            raise HTTPException(status_code=400, detail="Archivo vacío no permitido")
+        
+        try:
+            # Detectar MIME type real usando python-magic
+            mime = magic.Magic(mime=True)
+            mime_type = mime.from_buffer(file_header)
+            
+            if mime_type not in allowed_mimetypes:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Tipo de archivo no permitido. Solo JPEG, PNG y PDF. Detectado: {mime_type}"
+                )
+        except Exception as e:
+            logger.error(f"Error detectando MIME type: {e}")
+            raise HTTPException(status_code=400, detail="No se pudo validar el tipo de archivo")
+        
+        # Validar tamaño
         file.file.seek(0, 2)
         file_size = file.file.tell()
         file.file.seek(0)
-
+        
         max_size_bytes = settings.GCS_MAX_FILE_SIZE_MB * 1024 * 1024
         if file_size > max_size_bytes:
-            raise HTTPException(status_code=400, detail=f"Archivo muy grande")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Archivo muy grande. Máximo {settings.GCS_MAX_FILE_SIZE_MB}MB"
+            )
 
     def _generate_blob_name(self, user_id: str, product_id: str, filename: str) -> str:
         """Genera un nombre único para el blob en GCS."""

@@ -1,5 +1,7 @@
 import logging
 from fastapi import FastAPI
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import asyncio
 
 # --- Importación de Routers ---
 from app.api.v1 import (
@@ -22,10 +24,15 @@ from app.core.error_handlers import setup_exception_handlers
 from app.core.config import settings, supabase
 from app.db.supabase import supabase_admin
 
+# Scheduler global
+scheduler: AsyncIOScheduler = None
+
 
 # --- 1. Función de inicialización ---
-def startup_event():
+async def startup_event():
     """Verifica la conexión con Supabase y la configuración de email al iniciar."""
+    global scheduler
+    
     logging.info("[INFO] Starting MisBoletas API...")
     logging.info(f"[DEBUG] SUPABASE_URL configured: {bool(settings.SUPABASE_URL)}")
     logging.info(f"[DEBUG] SUPABASE_KEY configured: {bool(settings.SUPABASE_KEY)}")
@@ -87,9 +94,37 @@ def startup_event():
 
     # Mensaje final con acceso a docs
     logging.info("[OK] Server ready - Access docs at: http://localhost:8080/docs")
+    
+    # --- Inicializar Scheduler para Alertas ---
+    global scheduler
+    try:
+        scheduler = AsyncIOScheduler()
+        # Programar check de productos vencidos para 09:00 AM diariamente
+        scheduler.add_job(
+            alerts.check_expiring_products,
+            "cron",
+            hour=9,
+            minute=0,
+            id="check_expiring_products",
+            name="Check expiring products daily",
+            replace_existing=True
+        )
+        scheduler.start()
+        logging.info("[✅ OK] Scheduler iniciado - Alertas de vencimiento programadas diariamente a las 09:00 AM")
+    except Exception as e:
+        logging.error(f"[❌ ERROR] No se pudo iniciar el scheduler: {e}")
 
 
-# --- 2. Metadatos para ordenar los tags en /docs ---
+# --- 2. Función de shutdown ---
+async def shutdown_event():
+    """Detiene el scheduler al cerrar la aplicación."""
+    global scheduler
+    if scheduler and scheduler.running:
+        scheduler.shutdown()
+        logging.info("[OK] Scheduler detenido")
+
+
+# --- 3. Metadatos para ordenar los tags en /docs ---
 tags_metadata = [
     {
         "name": "Usuarios",
@@ -125,7 +160,7 @@ tags_metadata = [
     },
 ]
 
-# --- 3. Descripción detallada para /docs ---
+# --- 4. Descripción detallada para /docs ---
 api_description = """
 API MisBoletas - Gestión de Productos y Documentos
 
@@ -147,16 +182,19 @@ Esta API permite gestionar productos, documentos y realizar extracción automát
 - Categorías: Organizar productos
 """
 
-# --- 4. Crear aplicación FastAPI ---
+# --- 5. Crear aplicación FastAPI ---
 app = FastAPI(
     title="MisBoletas API",
     description=api_description,
     version="1.0.0",
-    on_startup=[startup_event],
     openapi_tags=tags_metadata,
 )
 
-# --- 5. Configurar Middleware ---
+# Agregar eventos de ciclo de vida
+app.add_event_handler("startup", startup_event)
+app.add_event_handler("shutdown", shutdown_event)
+
+# --- 6. Configurar Middleware ---
 setup_middleware(app)
 
 # --- 6. Configurar Exception Handlers ---
