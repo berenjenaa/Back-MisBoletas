@@ -32,7 +32,7 @@ scheduler: AsyncIOScheduler = None
 async def startup_event():
     """Verifica la conexión con Supabase y la configuración de email al iniciar."""
     global scheduler
-    
+
     logging.info("[INFO] Starting MisBoletas API...")
     logging.info(f"[DEBUG] SUPABASE_URL configured: {bool(settings.SUPABASE_URL)}")
     logging.info(f"[DEBUG] SUPABASE_KEY configured: {bool(settings.SUPABASE_KEY)}")
@@ -94,7 +94,7 @@ async def startup_event():
 
     # Mensaje final con acceso a docs
     logging.info("[OK] Server ready - Access docs at: http://localhost:8080/docs")
-    
+
     # --- Inicializar Scheduler para Alertas ---
     global scheduler
     try:
@@ -107,10 +107,12 @@ async def startup_event():
             minute=0,
             id="check_expiring_products",
             name="Check expiring products daily",
-            replace_existing=True
+            replace_existing=True,
         )
         scheduler.start()
-        logging.info("[✅ OK] Scheduler iniciado - Alertas de vencimiento programadas diariamente a las 09:00 AM")
+        logging.info(
+            "[✅ OK] Scheduler iniciado - Alertas de vencimiento programadas diariamente a las 09:00 AM"
+        )
     except Exception as e:
         logging.error(f"[❌ ERROR] No se pudo iniciar el scheduler: {e}")
 

@@ -319,3 +319,151 @@ async def send_expiration_alert_email(
         logger.error(
             f"[ERROR] Failed to send expiration alert email: {e}", exc_info=True
         )
+
+
+# ===== FUNCIÓN PARA SCHEDULER DIARIO =====
+
+
+async def check_expiring_products() -> None:
+    """
+    Función ejecutada DIARIAMENTE por el scheduler a las 09:00 AM.
+
+    Verifica TODOS los productos de TODOS los usuarios y alerta en múltiples umbrales:
+    - 7 días antes del vencimiento
+    - 4 días antes del vencimiento
+    - 2 días antes del vencimiento
+    - 1 día antes del vencimiento
+    - El día del vencimiento (día 0)
+
+    Se ejecuta de forma asincrónica sin bloquear la API.
+    """
+    try:
+        logger.info("[SCHEDULER] Iniciando verificación de productos vencidos...")
+
+        # Obtener TODOS los usuarios con al menos un producto
+        usuarios_alertados = 0
+        productos_vencidos = 0
+
+        try:
+            # Obtener todos los productos de la BD
+            productos_response = (
+                supabase_admin.get_table("productos").select("*").execute()
+            )
+
+            todos_productos = productos_response.data or []
+
+            if not todos_productos:
+                logger.info("[SCHEDULER] No hay productos registrados")
+                return
+
+            logger.info(f"[SCHEDULER] Verificando {len(todos_productos)} productos...")
+
+            # Agrupar productos por usuario
+            productos_por_usuario: Dict[str, List[ExpirationAlert]] = {}
+            today = datetime.utcnow().date()
+
+            # Umbrales de alerta (días antes del vencimiento)
+            ALERT_THRESHOLDS = [7, 4, 2, 1, 0]
+
+            for product in todos_productos:
+                if not product.get("fecha_compra") or not product.get(
+                    "duracion_garantia_meses"
+                ):
+                    continue
+
+                try:
+                    fecha_compra = datetime.fromisoformat(
+                        product["fecha_compra"]
+                    ).date()
+                    duracion_meses = product["duracion_garantia_meses"]
+                    user_id = product.get("id_usuario")
+
+                    if not user_id:
+                        continue
+
+                    # Calcular fecha de vencimiento
+                    from dateutil.relativedelta import relativedelta
+
+                    fecha_vencimiento = fecha_compra + relativedelta(
+                        months=duracion_meses
+                    )
+                    dias_para_vencer = (fecha_vencimiento - today).days
+
+                    # Verificar si coincide con alguno de los umbrales de alerta
+                    if dias_para_vencer in ALERT_THRESHOLDS:
+                        alert = ExpirationAlert(
+                            producto_id=product["id_producto"],
+                            nombre_producto=product.get(
+                                "nombre", "Producto sin nombre"
+                            ),
+                            dias_para_vencer=dias_para_vencer,
+                            fecha_vencimiento=fecha_vencimiento.isoformat(),
+                        )
+
+                        # Agrupar por usuario
+                        if user_id not in productos_por_usuario:
+                            productos_por_usuario[user_id] = []
+
+                        productos_por_usuario[user_id].append(alert)
+                        productos_vencidos += 1
+
+                        # Log detallado
+                        dias_texto = {
+                            7: "7 DÍAS",
+                            4: "4 DÍAS",
+                            2: "2 DÍAS",
+                            1: "1 DÍA",
+                            0: "HOY",
+                        }
+                        logger.info(
+                            f"[SCHEDULER] ⏰ {product['nombre']} vence {dias_texto[dias_para_vencer]} - Usuario: {user_id}"
+                        )
+
+                except Exception as e:
+                    logger.warning(
+                        f"[SCHEDULER WARNING] No se pudo procesar producto {product.get('id_producto')}: {e}"
+                    )
+                    continue
+
+            # Enviar alertas a cada usuario
+            for user_id, alerts in productos_por_usuario.items():
+                try:
+                    # Obtener email del usuario
+                    usuario_response = (
+                        supabase_admin.get_table("perfiles")
+                        .select("email")
+                        .eq("id_usuario", str(user_id))
+                        .execute()
+                    )
+
+                    if usuario_response.data:
+                        usuario_email = usuario_response.data[0].get("email")
+
+                        if usuario_email:
+                            # Enviar email de alerta
+                            await send_expiration_alert_email(usuario_email, alerts)
+                            usuarios_alertados += 1
+                            logger.info(
+                                f"[SCHEDULER] ✅ Email enviado a {usuario_email} ({len(alerts)} productos)"
+                            )
+
+                except Exception as e:
+                    logger.error(
+                        f"[SCHEDULER ERROR] No se pudo procesar usuario {user_id}: {e}"
+                    )
+                    continue
+
+            # Log final del scheduler
+            logger.info(
+                f"[SCHEDULER] ✅ Verificación completada: {productos_vencidos} productos, "
+                f"{usuarios_alertados} usuarios alertados"
+            )
+
+        except Exception as e:
+            logger.error(
+                f"[SCHEDULER ERROR] Error crítico en check_expiring_products: {e}",
+                exc_info=True,
+            )
+
+    except Exception as e:
+        logger.error(f"[SCHEDULER ERROR] Error no capturado: {e}", exc_info=True)
