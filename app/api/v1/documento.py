@@ -17,7 +17,6 @@ from app.db.supabase import supabase_admin
 from app.core.dependencies import get_current_user_id, get_active_user_id
 from app.services.gcs_service import get_gcs_service
 from app.services.ocr_service import (
-    background_process_ocr,
     process_boleta_from_gcs_uri,
     parse_receipt_data,
 )
@@ -108,34 +107,11 @@ async def upload_documento(
             }
         ).execute()
 
-        # 4. Procesar OCR en BACKGROUND (solo para boletas)
-        # Importante: Pasar mime_type correcto
-        supported_mimes = ["image/jpeg", "image/png", "application/pdf"]
-        file_mime = upload_result.get("content_type", "")
-
-        if (
-            tipo_documento == "boleta"
-            and settings.DOCUMENTAI_PROJECT_ID
-            and file_mime in supported_mimes
-        ):
-            supabase_admin.get_table("documentos").update(
-                {"estado_ocr": "pendiente"}
-            ).eq("id_documento", str(documento["id_documento"])).execute()
-
-            documento["estado_ocr"] = "pendiente"
-
-            # Lanzar tarea con MIME type
-            asyncio.create_task(
-                background_process_ocr(
-                    documento_id=str(documento["id_documento"]),
-                    gcs_uri=upload_result["gcs_uri"],
-                    mime_type=file_mime,
-                    user_id=str(user_id),
-                )
-            )
+        # 4. NO procesar OCR en background - el frontend lo hará de forma síncrona
+        # Esto evita condiciones de carrera y permite al usuario ver los datos inmediatamente
 
         return DocumentoUploadResponse(
-            message="Documento subido exitosamente. Escaneo OCR en progreso.",
+            message="Documento subido exitosamente.",
             documento=DocumentoRead(**documento),
         )
 
@@ -462,9 +438,9 @@ def _map_ocr_to_product_fields(ocr_result: dict) -> dict:
     """Mapea resultados OCR al formato esperado por el frontend para completar formulario."""
     if not ocr_result:
         return {}
-    
+
     parsed = ocr_result.get("parsed_data", {})
-    
+
     # Convertir fecha de DD/MM/AAAA o AAAA-MM-DD a ISO format
     fecha_ocr = parsed.get("fecha")
     fecha_iso = None
@@ -472,6 +448,7 @@ def _map_ocr_to_product_fields(ocr_result: dict) -> dict:
         try:
             # Intentar parsear formatos comunes
             import re
+
             # Formato DD/MM/AAAA o DD-MM-AAAA
             match_dmyy = re.match(r"(\d{1,2})[-/](\d{1,2})[-/](\d{4})", fecha_ocr)
             if match_dmyy:
@@ -482,7 +459,7 @@ def _map_ocr_to_product_fields(ocr_result: dict) -> dict:
                 fecha_iso = fecha_ocr
         except:
             pass
-    
+
     return {
         "nombre": parsed.get("comercio") or parsed.get("marca"),
         "marca": parsed.get("marca"),
