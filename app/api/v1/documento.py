@@ -211,12 +211,31 @@ async def get_documentos_by_producto(
         )
 
         documentos = response.data or []
-        return [DocumentoListItem(**d) for d in documentos]
+        
+        # Transformar documentos y manejar campos faltantes
+        result = []
+        for d in documentos:
+            try:
+                # Mapear campos si tienen nombres alternativos
+                doc_data = {
+                    'id_documento': d.get('id_documento') or d.get('DocumentoID'),
+                    'nombrearchivo': d.get('nombrearchivo') or d.get('NombreArchivo') or 'Archivo',
+                    'tipo_documento': d.get('tipo_documento') or d.get('TipoDocumento'),
+                    'fecha_creacion': d.get('fecha_creacion') or d.get('FechaCreacion'),
+                    'url_gcs': d.get('url_gcs') or d.get('URL_GCS'),
+                    'content_type': d.get('content_type') or d.get('ContentType'),
+                }
+                result.append(DocumentoListItem(**doc_data))
+            except Exception as field_error:
+                logger.warning(f"[WARNING] Skipping document {d.get('id_documento')}: {field_error}")
+                continue
+        
+        return result
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[ERROR] Failed to read documents: {e}")
+        logger.error(f"[ERROR] Failed to read documents: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error obteniendo documentos. Por favor intenta más tarde.",

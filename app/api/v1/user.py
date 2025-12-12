@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import RedirectResponse, HTMLResponse
 from pydantic import BaseModel, EmailStr
 from typing import Optional
@@ -8,6 +8,7 @@ import logging
 
 from app.db.supabase import supabase_admin, supabase
 from app.core.dependencies import get_current_user_id, get_active_user_id
+from app.core.limiter import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -707,7 +708,8 @@ async def delete_my_account(
     status_code=status.HTTP_200_OK,
     summary="Solicitar restablecimiento de contraseña",
 )
-async def forgot_password(data: UserLoginRequest):
+@limiter.limit("3/hour")
+async def forgot_password(request: Request, data: UserLoginRequest):
     """
     Envía un email con un link para restablecer la contraseña.
 

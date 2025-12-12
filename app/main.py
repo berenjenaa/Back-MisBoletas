@@ -2,6 +2,8 @@ import logging
 from fastapi import FastAPI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import asyncio
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 # --- Importación de Routers ---
 from app.api.v1 import (
@@ -22,6 +24,7 @@ from app.api.v1 import (
 from app.core.middleware import setup_middleware
 from app.core.error_handlers import setup_exception_handlers
 from app.core.config import settings, supabase
+from app.core.limiter import limiter
 from app.db.supabase import supabase_admin
 
 # Scheduler global
@@ -191,6 +194,10 @@ app = FastAPI(
     version="1.0.0",
     openapi_tags=tags_metadata,
 )
+
+# Conectar el limitador a la app
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Agregar eventos de ciclo de vida
 app.add_event_handler("startup", startup_event)
