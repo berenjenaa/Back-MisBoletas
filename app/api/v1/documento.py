@@ -420,12 +420,21 @@ async def process_document_ocr_sync(
         documento = doc_response.data
         gcs_uri = documento.get("url_gcs")
         mime_type = documento.get("content_type", "application/pdf")
+        estado_ocr = documento.get("estado_ocr")
+        metadata_ocr = documento.get("metadata_ocr")
 
         if not gcs_uri:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Documento sin URL en GCS")
 
+        # ✅ CACHING: Si ya procesó, devuelve cached (AHORRO DE $$)
+        if estado_ocr == "completado" and metadata_ocr:
+            if settings.LOG_LEVEL == "DEBUG":
+                logger.debug(f"[OCR CACHE HIT] documento {documento_id}")
+            return metadata_ocr
+
         # Procesar OCR de forma síncrona
-        logger.info(f"[OCR SYNC] Procesando documento {documento_id}")
+        if settings.LOG_LEVEL == "DEBUG":
+            logger.debug(f"[OCR SYNC] Procesando documento {documento_id}")
         ocr_result = await process_boleta_from_gcs_uri(gcs_uri, mime_type, str(user_id))
 
         # Actualizar documento con metadatos

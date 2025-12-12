@@ -116,31 +116,35 @@ class GCSService:
             self._validate_file(file)
             file_content = await file.read()
             file.file.seek(0)
-            
+
             # ✅ COMPRIME SI ES IMAGEN
             if file.content_type and file.content_type.startswith("image/"):
                 logger.info(f"Comprimiendo imagen {file.filename}...")
                 try:
                     img = Image.open(io.BytesIO(file_content))
-                    
+
                     # Redimensiona si es muy grande
                     if img.size[0] > 2048 or img.size[1] > 2048:
                         img.thumbnail((2048, 2048), Image.Resampling.LANCZOS)
-                    
+
                     # Convierte a JPEG y comprime (quality=85)
                     buffer = io.BytesIO()
                     img.save(buffer, format="JPEG", quality=85, optimize=True)
                     file_content = buffer.getvalue()
                     file.content_type = "image/jpeg"
-                    
+
                     original_size = len(await file.read())
                     file.file.seek(0)
                     compressed_size = len(file_content)
                     ratio = 100 - (compressed_size * 100 // original_size)
-                    logger.info(f"Compresión: {original_size} → {compressed_size} bytes (-{ratio}%)")
+                    logger.info(
+                        f"Compresión: {original_size} → {compressed_size} bytes (-{ratio}%)"
+                    )
                 except Exception as e:
-                    logger.warning(f"No se pudo comprimir imagen: {e}. Usando original.")
-            
+                    logger.warning(
+                        f"No se pudo comprimir imagen: {e}. Usando original."
+                    )
+
             blob_name = self._generate_blob_name(user_id, product_id, file.filename)
             blob = self.bucket.blob(blob_name)
             blob.upload_from_string(

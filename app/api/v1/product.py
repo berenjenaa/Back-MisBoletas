@@ -71,7 +71,7 @@ async def get_products(
                     .in_("id_producto", producto_ids)
                     .execute()
                 )
-                
+
                 # Agrupar categorías por producto ID
                 categorias_by_producto = {}
                 if cat_response.data:
@@ -79,15 +79,15 @@ async def get_products(
                         prod_id = pc["id_producto"]
                         if prod_id not in categorias_by_producto:
                             categorias_by_producto[prod_id] = []
-                        
+
                         if pc.get("categorias"):
                             categorias_by_producto[prod_id].append(pc["categorias"])
-                
+
                 # Asignar categorías a cada producto
                 for producto in productos:
                     prod_id = str(producto["id_producto"])
                     producto["categorias"] = categorias_by_producto.get(prod_id, [])
-                    
+
             except Exception as cat_error:
                 logger.warning(
                     f"[WARNING] Failed to fetch categories (JOIN): {cat_error}"
