@@ -35,7 +35,7 @@ APScheduler==3.10.4
 python-magic==0.4.27
 
 # === Image processing (para compresión de imágenes antes de GCS) ===
-Pillow==10.2.0
+Pillow==11.0.0
 
 # === Dependencias indirectas (especificadas para estabilidad) ===
 pydantic_core==2.33.2
