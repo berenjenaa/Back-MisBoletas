@@ -23,6 +23,7 @@ class Settings(BaseSettings):
         None  # DESDE .ENV - Service role key (sin restricciones RLS)
     )
     ENV: str = "local"  # local, development o production
+    LOG_LEVEL: str = "INFO"  # ✅ PROD: INFO, LOCAL: DEBUG
 
     # === CONFIGURACIÓN DE SEGURIDAD ===
     SECRET_KEY: str  # DESDE .ENV

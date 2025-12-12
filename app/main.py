@@ -27,6 +27,12 @@ from app.core.config import settings, supabase
 from app.core.limiter import limiter
 from app.db.supabase import supabase_admin
 
+# ✅ Configurar nivel de logging según ENV
+logging.basicConfig(
+    level=getattr(logging, settings.LOG_LEVEL, logging.INFO),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
 # Scheduler global
 scheduler: AsyncIOScheduler = None
 
