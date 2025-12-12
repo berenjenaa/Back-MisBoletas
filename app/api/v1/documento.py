@@ -16,7 +16,11 @@ from app.schemas.documento import (
 from app.db.supabase import supabase_admin
 from app.core.dependencies import get_current_user_id, get_active_user_id
 from app.services.gcs_service import get_gcs_service
-from app.services.ocr_service import background_process_ocr
+from app.services.ocr_service import (
+    background_process_ocr,
+    process_boleta_from_gcs_uri,
+    parse_receipt_data,
+)
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -388,3 +392,57 @@ async def delete_documento(
     except Exception as e:
         logger.error(f"[ERROR] Delete error: {e}")
         raise HTTPException(500, "Error al eliminar")
+
+
+@router.post(
+    "/{documento_id}/process-ocr",
+    summary="Procesar OCR síncrono de un documento",
+)
+async def process_document_ocr_sync(
+    documento_id: UUID,
+    user_id: UUID = Depends(get_active_user_id),
+):
+    """Procesa OCR de forma síncrona para un documento ya subido."""
+    try:
+        # Obtener documento
+        doc_response = (
+            supabase_admin.get_table("documentos")
+            .select("*")
+            .eq("id_documento", str(documento_id))
+            .eq("id_usuario", str(user_id))
+            .single()
+            .execute()
+        )
+
+        if not doc_response.data:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento no encontrado")
+
+        documento = doc_response.data
+        gcs_uri = documento.get("url_gcs")
+        mime_type = documento.get("content_type", "application/pdf")
+
+        if not gcs_uri:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Documento sin URL en GCS")
+
+        # Procesar OCR de forma síncrona
+        logger.info(f"[OCR SYNC] Procesando documento {documento_id}")
+        ocr_result = await process_boleta_from_gcs_uri(gcs_uri, mime_type, str(user_id))
+
+        # Actualizar documento con metadatos
+        supabase_admin.get_table("documentos").update(
+            {
+                "estado_ocr": "completado",
+                "metadata_ocr": ocr_result,
+            }
+        ).eq("id_documento", str(documento_id)).execute()
+
+        return ocr_result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[ERROR] OCR sync failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error procesando documento",
+        )
