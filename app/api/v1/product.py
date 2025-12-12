@@ -237,23 +237,32 @@ async def update_product(
 ):
     """Actualiza un producto existente."""
     try:
-        payload = {
-            "nombre": product_data.nombre,
-            "fecha_compra": (
-                str(product_data.fecha_compra) if product_data.fecha_compra else None
-            ),
-            "duracion_garantia_meses": product_data.duracion_garantia_meses,
-            "marca": product_data.marca,
-            "modelo": product_data.modelo,
-            "tienda": product_data.tienda,
-            "notas": product_data.notas,
-            "precio": float(product_data.precio) if product_data.precio else None,
-            "id_organizacion": (
-                str(product_data.id_organizacion)
-                if product_data.id_organizacion
-                else None
-            ),
-        }
+        # Solo actualizar campos que fueron proporcionados (no None)
+        payload = {}
+        if product_data.nombre is not None:
+            payload["nombre"] = product_data.nombre
+        if product_data.fecha_compra is not None:
+            payload["fecha_compra"] = str(product_data.fecha_compra)
+        if product_data.duracion_garantia_meses is not None:
+            payload["duracion_garantia_meses"] = product_data.duracion_garantia_meses
+        if product_data.marca is not None:
+            payload["marca"] = product_data.marca
+        if product_data.modelo is not None:
+            payload["modelo"] = product_data.modelo
+        if product_data.tienda is not None:
+            payload["tienda"] = product_data.tienda
+        if product_data.notas is not None:
+            payload["notas"] = product_data.notas
+        if product_data.precio is not None:
+            payload["precio"] = float(product_data.precio)
+        if product_data.id_organizacion is not None:
+            payload["id_organizacion"] = str(product_data.id_organizacion)
+
+        if not payload:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No hay campos para actualizar",
+            )
 
         response = (
             supabase_admin.get_table("productos")
