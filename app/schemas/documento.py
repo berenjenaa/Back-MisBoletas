@@ -16,23 +16,19 @@ class DocumentoRead(BaseModel):
 
     id_documento: UUID
     id_usuario: UUID
-    nombre_archivo: str
+    nombre_archivo: str  # ✅ Correcto
     url_gcs: str
     blob_name: str
     content_type: Optional[str] = None
-    tipo_documento: Optional[str] = (
-        None  # 'boleta', 'factura', 'garantia', 'manual', 'otro'
-    )
-    metadata_ocr: Optional[Dict[str, Any]] = None  # OCR data (full_text, etc)
-    estado_ocr: Optional[str] = (
-        None  # 'pendiente' | 'procesando' | 'completado' | 'error'
-    )
-    error_ocr: Optional[str] = None  # Mensaje de error si OCR falló
-    numero_boleta: Optional[str] = None  # Extraído por OCR
-    fecha_emision: Optional[date] = None  # Extraído por OCR
-    duracion_garantia_especifica: Optional[int] = None  # En días/meses
+    tipo_documento: Optional[str] = None
+    metadata_ocr: Optional[Dict[str, Any]] = None
+    estado_ocr: Optional[str] = None
+    error_ocr: Optional[str] = None
+    numero_boleta: Optional[str] = None
+    fecha_emision: Optional[date] = None
+    duracion_garantia_especifica: Optional[int] = None
     fecha_subida: Optional[datetime] = None
-    fecha_eliminacion: Optional[datetime] = None  # Soft delete
+    fecha_eliminacion: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -59,7 +55,7 @@ class DocumentoListItem(BaseModel):
     """Schema simplificado para listar documentos."""
 
     id_documento: UUID
-    nombrearchivo: str
+    nombre_archivo: str  # 🔧 CORREGIDO: Coincide con la BD (antes nombrearchivo)
     tipo_documento: Optional[str] = None
     fecha_creacion: Optional[datetime] = None
     url_gcs: Optional[str] = None
@@ -92,7 +88,7 @@ class DocumentoAssociateResponse(BaseModel):
 
     id_documento: UUID
     id_producto: UUID
-    nombrearchivo: str
+    nombre_archivo: str  # 🔧 CORREGIDO (antes nombrearchivo)
     tipo_documento: str
     mensaje: str
 
