@@ -430,7 +430,7 @@ async def process_document_ocr_sync(
         if estado_ocr == "completado" and metadata_ocr:
             if settings.LOG_LEVEL == "DEBUG":
                 logger.debug(f"[OCR CACHE HIT] documento {documento_id}")
-            return metadata_ocr
+            return _map_ocr_to_product_fields(metadata_ocr)
 
         # Procesar OCR de forma síncrona
         if settings.LOG_LEVEL == "DEBUG":
@@ -445,7 +445,8 @@ async def process_document_ocr_sync(
             }
         ).eq("id_documento", str(documento_id)).execute()
 
-        return ocr_result
+        # Retornar datos mapeados al frontend
+        return _map_ocr_to_product_fields(ocr_result)
 
     except HTTPException:
         raise
@@ -455,3 +456,39 @@ async def process_document_ocr_sync(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error procesando documento",
         )
+
+
+def _map_ocr_to_product_fields(ocr_result: dict) -> dict:
+    """Mapea resultados OCR al formato esperado por el frontend para completar formulario."""
+    if not ocr_result:
+        return {}
+    
+    parsed = ocr_result.get("parsed_data", {})
+    
+    # Convertir fecha de DD/MM/AAAA o AAAA-MM-DD a ISO format
+    fecha_ocr = parsed.get("fecha")
+    fecha_iso = None
+    if fecha_ocr:
+        try:
+            # Intentar parsear formatos comunes
+            import re
+            # Formato DD/MM/AAAA o DD-MM-AAAA
+            match_dmyy = re.match(r"(\d{1,2})[-/](\d{1,2})[-/](\d{4})", fecha_ocr)
+            if match_dmyy:
+                day, month, year = match_dmyy.groups()
+                fecha_iso = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+            else:
+                # Formato AAAA-MM-DD ya está correcto
+                fecha_iso = fecha_ocr
+        except:
+            pass
+    
+    return {
+        "nombre": parsed.get("comercio") or parsed.get("marca"),
+        "marca": parsed.get("marca"),
+        "modelo": parsed.get("modelo"),
+        "tienda": parsed.get("comercio"),
+        "precio": parsed.get("total"),
+        "fecha_compra": fecha_iso,
+        "duracion_garantia_meses": parsed.get("garantia"),
+    }
