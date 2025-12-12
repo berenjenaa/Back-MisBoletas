@@ -1,359 +1,249 @@
 import logging
-import json
-import re
-from fastapi import HTTPException, status, UploadFile
+from google.api_core.client_options import ClientOptions
+from google.cloud import documentai
 from app.core.config import settings
-
-# Importar librerías de Google Document AI
-try:
-    from google.api_core.client_options import ClientOptions
-    from google.cloud import documentai
-except ImportError:
-    documentai = None
-    ClientOptions = None
+from fastapi import HTTPException
+import re
+from app.db.supabase import supabase_admin
 
 logger = logging.getLogger(__name__)
 
-# --- VALIDACIÓN INICIAL ---
-if documentai is None:
-    logger.critical("[ERROR] google-cloud-documentai library not installed")
-elif not all(
-    [
-        settings.DOCUMENTAI_PROJECT_ID,
-        settings.DOCUMENTAI_LOCATION,
-        settings.DOCUMENTAI_PROCESSOR_ID,
-    ]
-):
-    logger.critical(
-        "[ERROR] Document AI environment variables not configured (PROJECT_ID, LOCATION, PROCESSOR_ID)"
-    )
 
-
-def _get_documentai_client():
-    """Crea y configura el cliente de Document AI."""
-    if documentai is None:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "OCR service not installed"
-        )
-
-    try:
-        opts = ClientOptions(
-            api_endpoint=f"{settings.DOCUMENTAI_LOCATION}-documentai.googleapis.com"
-        )
-        client = documentai.DocumentProcessorServiceClient(client_options=opts)
-    except Exception as e:
-        logger.error(f"[ERROR] Failed to initialize Document AI client: {e}")
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "OCR service initialization failed"
-        )
-
-    return client
-
-
-async def process_boleta_image(file: UploadFile, user_id: str) -> dict:
+def parse_receipt_data(text: str) -> dict:
     """
-    Procesa la imagen de una boleta con Google Document AI (Receipt Processor).
-
-    Args:
-        file: UploadFile con la imagen
-        user_id: ID del usuario (para logging)
-
-    Returns:
-        Dict con texto completo y datos estructurados extraídos
+    Analiza el texto crudo del OCR para extraer datos clave usando Regex avanzados.
+    Intenta llenar: Tienda, Fecha, Total, Marca, Modelo, Garantía.
     """
-    client = _get_documentai_client()
-
-    # 1. Construir el 'name' completo del procesador
-    name = client.processor_path(
-        settings.DOCUMENTAI_PROJECT_ID,
-        settings.DOCUMENTAI_LOCATION,
-        settings.DOCUMENTAI_PROCESSOR_ID,
-    )
-
-    # 2. Leer los bytes del archivo y el tipo de contenido
-    image_content = await file.read()
-    mime_type = file.content_type
-
-    # 3. Crear el documento "crudo" para enviar
-    raw_document = documentai.RawDocument(content=image_content, mime_type=mime_type)
-
-    # 4. Crear la petición
-    request = documentai.ProcessRequest(name=name, raw_document=raw_document)
-
-    # 5. Llamar a la API de Document AI
-    logger.info(f"[INFO] Sending image to Document AI (User: {user_id})...")
-    try:
-        result = client.process_document(request=request)
-        document = result.document
-    except Exception as e:
-        logger.error(f"[ERROR] Document AI API error: {e}", exc_info=True)
-        raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR, f"OCR external error: {str(e)}"
-        )
-
-    # 6. Extraer y estructurar los datos
-    extracted_data = {}
-    for entity in document.entities:
-        value = entity.mention_text
-        extracted_data[entity.type_] = value
-
-    logger.info(f"[OK] Data extracted for User {user_id}: {len(extracted_data)} fields")
-
-    return {"texto_completo": document.text, "datos_estructurados": extracted_data}
-
-
-async def process_boleta_from_gcs_uri(gcs_uri: str, user_id: str = None) -> dict:
-    """
-    Procesa una imagen de boleta directamente desde GCS (gs://...).
-
-    Ventajas:
-    - No requiere descargar bytes (más rápido)
-    - Usa GcsSource de Document AI (procesamiento directo en Google Cloud)
-    - Ideal para archivos grandes
-
-    Args:
-        gcs_uri: URI completa en Google Cloud Storage (ej: gs://bucket-name/path/to/file.jpg)
-        user_id: ID del usuario (para logging)
-
-    Returns:
-        Dict con:
-        - "texto_completo": Texto extraído de la imagen
-        - "datos_estructurados": Entidades organizadas por tipo (key: tipo, value: texto)
-        - "confianza": Puntuación de confianza promedio (0-1)
-        - "raw_entities": Lista completa de entidades con metadata completa
-        - "total_entities": Cantidad de entidades extraídas
-    """
-    client = _get_documentai_client()
-
-    # 1. Construir el 'name' completo del procesador
-    name = client.processor_path(
-        settings.DOCUMENTAI_PROJECT_ID,
-        settings.DOCUMENTAI_LOCATION,
-        settings.DOCUMENTAI_PROCESSOR_ID,
-    )
-
-    # 2. Validar que sea URI de GCS
-    if not gcs_uri.startswith("gs://"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid URI format. Must start with 'gs://'. Got: {gcs_uri}",
-        )
-
-    # 3. Validar bucket si está configurado
-    if settings.GCS_BUCKET_NAME:
-        expected_prefix = f"gs://{settings.GCS_BUCKET_NAME}/"
-        if not gcs_uri.startswith(expected_prefix):
-            logger.warning(
-                f"[WARNING] GCS URI from unexpected bucket. Expected: {expected_prefix}, Got: {gcs_uri}"
-            )
-
-    # 4. Crear documento usando GCS URI (sin descargar bytes)
-    gcs_document = documentai.GcsDocument(gcs_uri=gcs_uri)
-
-    # 5. Crear la petición con referencia a GCS
-    request = documentai.ProcessRequest(name=name, gcs_document=gcs_document)
-
-    # 6. Llamar a la API de Document AI
-    user_log = f"User: {user_id}" if user_id else "System"
-    logger.info(f"[INFO] Sending GCS image to Document AI ({user_log}). URI: {gcs_uri}")
-    try:
-        result = client.process_document(request=request)
-        document = result.document
-    except Exception as e:
-        logger.error(f"[ERROR] Document AI API error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"OCR external error: {str(e)}")
-
-    # 7. Extraer y estructurar los datos
-    extracted_data = {}
-    raw_entities = []
-    total_confidence = 0.0
-    entity_count = 0
-
-    for entity in document.entities:
-        value = entity.mention_text
-        confidence = entity.confidence if hasattr(entity, "confidence") else 0.0
-
-        # Guardar entidad con metadata completa
-        entity_info = {
-            "type": entity.type_,
-            "value": value,
-            "confidence": round(confidence, 3),
-        }
-
-        # Agregar bounding box si existe
-        if entity.bounding_poly and entity.bounding_poly.vertices:
-            entity_info["bounding_box"] = {
-                "vertices": [
-                    {"x": round(v.x, 4), "y": round(v.y, 4)}
-                    for v in entity.bounding_poly.vertices
-                ]
-            }
-
-        raw_entities.append(entity_info)
-
-        # Agregar al diccionario estructurado (última entidad de cada tipo gana)
-        extracted_data[entity.type_] = value
-
-        total_confidence += confidence
-        entity_count += 1
-
-    # Calcular confianza promedio
-    avg_confidence = (total_confidence / entity_count) if entity_count > 0 else 0.0
-
-    logger.info(
-        f"[OK] OCR completed ({user_log}). "
-        f"Entities: {entity_count}, "
-        f"Avg Confidence: {avg_confidence:.1%}"
-    )
-
-    return {
-        "texto_completo": document.text,
-        "datos_estructurados": extracted_data,
-        "confianza": round(avg_confidence, 3),
-        "raw_entities": raw_entities,
-        "total_entities": entity_count,
+    data = {
+        "comercio": None,
+        "fecha": None,
+        "total": None,
+        "marca": None,
+        "modelo": None,
+        "garantia": None,
     }
 
+    if not text:
+        return data
 
-def parse_receipt_data(raw_text: str) -> dict:
-    """
-    Extrae datos estructurados de una boleta usando Regex.
+    text_lower = text.lower()
 
-    Args:
-        raw_text: Texto crudo del OCR
+    # 1. Extraer FECHA (Formatos: DD/MM/AAAA, DD-MM-AAAA, AAAA-MM-DD)
+    # Busca fechas válidas en el texto
+    date_pattern = r"(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})|(\d{4}[-/]\d{1,2}[-/]\d{1,2})"
+    date_match = re.search(date_pattern, text)
+    if date_match:
+        data["fecha"] = date_match.group(0)
 
-    Returns:
-        Dict con: total, fecha, comercio, texto_limpio
-    """
-    if not raw_text:
-        return {"total": None, "fecha": None, "comercio": None, "texto_limpio": ""}
-
-    texto = raw_text.lower().strip()
-
-    # Extracción de TOTAL - Priorizar palabras clave
-    total = None
-
-    # Patrón: total/monto/suma seguido de número
-    # Captura números como: 21.690, 21,690, 21690
-    patron_total = r"(?:total|monto|suma|pagar|neto)\s*[:\s]+\$?\s*(\d+(?:[.,]\d{3})*(?:[.,]\d{2})?)"
-    matches = re.finditer(patron_total, texto)
-    montos = []
-
-    for match in matches:
-        valor_str = match.group(1)
-        # Limpiar separadores: 21.690 o 21,690 -> 21690
-        valor_str = valor_str.replace(".", "").replace(",", "")
+    # 2. Extraer TOTAL
+    # Busca patrones como: Total $10.000, Total: 10000, Monto: 5000
+    total_pattern = r"(?i)(?:total|monto|pagar)[\s:.$]*([\d,.]+)"
+    total_match = re.search(total_pattern, text)
+    if total_match:
+        # Limpiar el número (quitar puntos y dejar solo dígitos y punto decimal si es necesario)
+        # Asumimos formato chileno donde el punto es separador de miles
+        raw_amount = total_match.group(1).replace(".", "").replace(",", ".")
         try:
-            valor = int(valor_str)
-            if 500 < valor < 100000000:  # Rango realista
-                montos.append(valor)
-        except (ValueError, IndexError):
+            data["total"] = int(float(raw_amount))
+        except:
             pass
 
-    if montos:
-        total = max(montos)
-
-    # Extracción de FECHA
-    fecha = None
-    patrones_fecha = [
-        r"(?:fecha|date)\s*[:\s]+(\d{1,2})[/-](\d{1,2})[/-](\d{4})",
-        r"(\d{1,2})[/-](\d{1,2})[/-](\d{4})",
+    # 3. Extraer COMERCIO (Lista de tiendas comunes en Chile)
+    tiendas_comunes = [
+        "LIDER",
+        "JUMBO",
+        "TOTTUS",
+        "UNIMARC",
+        "SANTA ISABEL",
+        "FALABELLA",
+        "RIPLEY",
+        "PARIS",
+        "LA POLAR",
+        "HITES",
+        "PC FACTORY",
+        "EASY",
+        "SODIMAC",
+        "CONSTRUMART",
+        "ZARA",
+        "H&M",
+        "MERCADO LIBRE",
+        "ALIEXPRESS",
+        "SHEIN",
+        "CASA ROYAL",
+        "ABCDIN",
     ]
-
-    for patron in patrones_fecha:
-        match = re.search(patron, texto)
-        if match:
-            # Extraer la fecha completa (sin capturar los grupos)
-            fecha = (
-                match.group(0).split()[-1] if " " in match.group(0) else match.group(0)
-            )
+    for tienda in tiendas_comunes:
+        if tienda.lower() in text_lower:
+            data["comercio"] = tienda
             break
 
-    # Extracción de COMERCIO (primeras 3 líneas, excluyen RUT)
-    lineas = raw_text.split("\n")
-    comercio = None
-    for i in range(min(3, len(lineas))):
-        linea = lineas[i].strip()
-        if (
-            linea
-            and len(linea) > 3
-            and not re.match(r"^\d+", linea)
-            and "rut" not in linea.lower()
-            and "boleta" not in linea.lower()
-        ):
-            comercio = linea
+    # Si no encuentra tienda conocida, intenta buscar en las primeras líneas
+    if not data["comercio"]:
+        lines = text.split("\n")
+        for line in lines[:5]:  # Mira las primeras 5 líneas
+            clean_line = line.strip()
+            if len(clean_line) > 3 and not any(char.isdigit() for char in clean_line):
+                # Evitar líneas que parezcan direcciones o códigos
+                if (
+                    "rut" not in clean_line.lower()
+                    and "boleta" not in clean_line.lower()
+                ):
+                    data["comercio"] = clean_line
+                    break
+
+    # 4. Extraer MARCA (Lista de marcas comunes)
+    marcas_comunes = [
+        "SAMSUNG",
+        "LG",
+        "SONY",
+        "APPLE",
+        "HP",
+        "DELL",
+        "LENOVO",
+        "ASUS",
+        "ACER",
+        "PHILIPS",
+        "MIDEA",
+        "FENSA",
+        "MADEMSA",
+        "BOSCH",
+        "WHIRLPOOL",
+        "ELECTROLUX",
+        "THOMAS",
+        "URSUS TROTTER",
+        "PEUGEOT",
+        "CHEVROLET",
+        "TOYOTA",
+        "NINTENDO",
+        "PLAYSTATION",
+        "XBOX",
+        "XIAOMI",
+        "MOTOROLA",
+        "HUAWEI",
+    ]
+    for marca in marcas_comunes:
+        if marca.lower() in text_lower:
+            data["marca"] = marca
             break
 
-    return {
-        "total": total,
-        "fecha": fecha,
-        "comercio": comercio,
-        "texto_limpio": texto,
-    }
+    # 5. Extraer MODELO (Busca palabras clave como 'Mod', 'Modelo' o SKU)
+    # Patrón: "Modelo: XYZ-123"
+    modelo_pattern = r"(?i)(?:modelo|mod\.|sku)[\s:.]*([A-Za-z0-9\-\/]+)"
+    modelo_match = re.search(modelo_pattern, text)
+    if modelo_match:
+        val = modelo_match.group(1)
+        if len(val) > 2:  # Evitar falsos positivos cortos
+            data["modelo"] = val
+
+    # 6. Extraer GARANTÍA (Busca "Garantía X meses" o "Garantía X años")
+    garantia_pattern = r"(?i)garant[ií]a.*?(\d+)\s*(mes|año|dia)"
+    garantia_match = re.search(garantia_pattern, text)
+    if garantia_match:
+        cantidad = int(garantia_match.group(1))
+        unidad = garantia_match.group(2).lower()
+        if "año" in unidad:
+            data["garantia"] = cantidad * 12  # Convertir a meses
+        elif "mes" in unidad:
+            data["garantia"] = cantidad
+        # Si son días, lo ignoramos o aproximamos a 1 mes si es > 20 días
+
+    return data
 
 
-async def background_process_ocr(documento_id: str, gcs_uri: str, user_id: str) -> None:
+async def process_boleta_from_gcs_uri(
+    gcs_uri: str, mime_type: str, user_id: str
+) -> dict:
     """
-    Procesa OCR en background sin bloquear la respuesta HTTP.
-
-    Actualiza directamente en Supabase:
-    - estado_ocr: 'pendiente' -> 'procesando' -> 'completado'/'error'
-    - metadata_ocr: Resultado del OCR
-    - error_ocr: Mensaje de error (si falla)
-
-    Esta función se llama via asyncio.create_task() desde el endpoint.
-    No está en el request HTTP, por lo que el usuario recibe respuesta inmediatamente.
+    Procesa un documento alojado en GCS usando Document AI.
 
     Args:
-        documento_id: UUID del documento
-        gcs_uri: URI de Google Cloud Storage (gs://...)
-        user_id: UUID del usuario (para logging)
+        gcs_uri: URI del archivo (gs://bucket/path)
+        mime_type: Tipo MIME del archivo (ej: 'application/pdf', 'image/jpeg')
+        user_id: ID del usuario (para logs)
     """
-    from app.db.supabase import supabase_admin
+    project_id = settings.DOCUMENTAI_PROJECT_ID
+    location = settings.DOCUMENTAI_LOCATION
+    processor_id = settings.DOCUMENTAI_PROCESSOR_ID
+
+    if not all([project_id, location, processor_id]):
+        raise ValueError("Faltan configuraciones de Document AI")
+
+    opts = ClientOptions(api_endpoint=f"{location}-documentai.googleapis.com")
+    client = documentai.DocumentProcessorServiceClient(client_options=opts)
+    name = client.processor_path(project_id, location, processor_id)
+
+    logger.info(
+        f"[INFO] Sending GCS image to Document AI (User: {user_id}). URI: {gcs_uri}, MIME: {mime_type}"
+    )
+
+    # Configurar el documento fuente en GCS
+    # IMPORTANTE: mime_type es obligatorio para Google Document AI
+    gcs_document = documentai.GcsDocument(gcs_uri=gcs_uri, mime_type=mime_type)
+
+    request = documentai.ProcessRequest(
+        name=name,
+        gcs_document=gcs_document,
+        skip_human_review=True,
+    )
 
     try:
-        # 1. Marcar como procesando
-        logger.info(f"[BACKGROUND] Starting OCR processing for document {documento_id}")
-        supabase_admin.get_table("documentos").update({"estado_ocr": "procesando"}).eq(
-            "id_documento", documento_id
-        ).execute()
+        result = client.process_document(request=request)
+        document = result.document
 
-        # 2. Procesar OCR
-        ocr_result = await process_boleta_from_gcs_uri(gcs_uri=gcs_uri, user_id=user_id)
+        # Extraer texto completo
+        full_text = document.text
 
-        # 3. Extraer datos estructurados adicionales
-        parsed_data = parse_receipt_data(ocr_result.get("texto_completo", ""))
-        ocr_result["datos_parseados"] = parsed_data
+        # Parsear datos con nuestra lógica mejorada
+        parsed_data = parse_receipt_data(full_text)
 
-        # 4. Guardar resultado en Supabase
+        return {
+            "texto_completo": full_text,
+            "parsed_data": parsed_data,
+            "raw_entities": [],  # Opcional: procesar entidades nativas de Google si las hay
+        }
+
+    except Exception as e:
+        logger.error(f"[ERROR] Document AI API error: {e}")
+        raise e
+
+
+async def background_process_ocr(
+    documento_id: str, gcs_uri: str, mime_type: str, user_id: str
+):
+    """
+    Tarea en segundo plano que coordina el OCR y actualiza Supabase.
+    Recibe mime_type para evitar errores de validación.
+    """
+    logger.info(f"[BACKGROUND] Starting OCR for doc {documento_id}, MIME: {mime_type}")
+
+    try:
+        # 1. Llamar al servicio de Google
+        ocr_result = await process_boleta_from_gcs_uri(
+            gcs_uri=gcs_uri, mime_type=mime_type, user_id=user_id
+        )
+
+        # 2. Actualizar documento en Supabase con éxito
         supabase_admin.get_table("documentos").update(
             {
-                "metadata_ocr": json.dumps(ocr_result),
-                "numero_boleta": parsed_data.get("numero_boleta"),
-                "fecha_emision": parsed_data.get("fecha"),
                 "estado_ocr": "completado",
+                "metadata_ocr": ocr_result,
                 "error_ocr": None,
+                # Opcional: Guardar datos parseados en columnas si las creaste en la BD
+                # "numero_boleta": ocr_result["parsed_data"].get("numero"),
             }
         ).eq("id_documento", documento_id).execute()
 
         logger.info(
-            f"[BACKGROUND] OCR completed successfully for document {documento_id}"
+            f"[BACKGROUND] OCR completed for {documento_id}. Data: {ocr_result['parsed_data']}"
         )
 
     except Exception as e:
-        # 4. Guardar error en Supabase
-        error_msg = str(e)[:500]  # Limitar a 500 caracteres
+        error_msg = f"500: OCR external error: {str(e)}"
         logger.error(
-            f"[BACKGROUND] OCR failed for document {documento_id}: {e}",
-            exc_info=True,
+            f"[BACKGROUND] OCR failed for document {documento_id}: {error_msg}"
         )
 
-        try:
-            supabase_admin.get_table("documentos").update(
-                {"estado_ocr": "error", "error_ocr": error_msg}
-            ).eq("id_documento", documento_id).execute()
-        except Exception as db_error:
-            logger.error(
-                f"[BACKGROUND] Failed to update error state: {db_error}",
-                exc_info=True,
-            )
+        # 3. Actualizar error en Supabase
+        supabase_admin.get_table("documentos").update(
+            {"estado_ocr": "error", "error_ocr": error_msg}
+        ).eq("id_documento", documento_id).execute()
