@@ -12,11 +12,7 @@ import json
 from app.db.supabase import supabase_admin, supabase
 from app.core.dependencies import get_current_user_id, get_active_user_id
 from app.core.limiter import limiter
-
-try:
-    from resend import Resend
-except ImportError:
-    Resend = None
+from app.core.email_config import send_email  # <--- ✅ IMPORT CORREGIDO
 
 logger = logging.getLogger(__name__)
 
@@ -287,12 +283,6 @@ async def confirm_email(
        - Verifica la sesión con Supabase (token en cookies)
        - Si es válido → Devuelve HTML con JS que abre la app
        - Si es inválido → Muestra error amigable
-
-    VENTAJAS:
-    - El link siempre funciona (usa https, no deep link)
-    - Si la app no está instalada, muestra error legible
-    - Si la app está instalada, abre automáticamente
-    - Funciona en emails, SMS, cualquier lado
     """
     try:
         logger.info(
@@ -960,14 +950,6 @@ async def forgot_password(request: Request, data: ForgotPasswordRequest):
     try:
         logger.info(f"[AUTH] Solicitud de reset password para: {data.email}")
 
-        # ✅ Verificar que Resend está disponible
-        if not Resend:
-            logger.error("[ERROR] Resend no está instalado")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Servicio de email no disponible",
-            )
-
         # ✅ Solicitar recovery token en Supabase
         # Esto genera el token pero NO envía email automáticamente
         try:
@@ -1143,41 +1125,26 @@ async def forgot_password(request: Request, data: ForgotPasswordRequest):
         </html>
         """
 
-        # ✅ Enviar email via Resend
-        resend_api_key = os.getenv("RESEND_API_KEY")
-        logger.info(f"[AUTH] RESEND_API_KEY configured: {bool(resend_api_key)}")
-
-        if not resend_api_key:
-            logger.error("[ERROR] RESEND_API_KEY no configurada en .env")
-            # No revelar el error interno al usuario
-            return {
-                "status": "success",
-                "message": "Si el correo existe en nuestro sistema, recibirás un enlace para restablecer tu contraseña.",
-            }
-
+        # ✅ Enviar email usando el helper unificado (httpx)
+        # Esto usa la configuración central en app/core/email_config.py
+        # ✅ CAMBIO REALIZADO AQUÍ: SE ELIMINÓ LÓGICA MANUAL DE RESEND
         try:
-            logger.info(f"[AUTH] Inicializando Resend con API key")
-            resend_client = Resend(api_key=resend_api_key)
-            logger.info(f"[AUTH] Enviando email via Resend a {data.email}")
-
-            email_response = resend_client.emails.send(
-                {
-                    "from": "noreply@misboletas.tech",
-                    "to": data.email,
-                    "subject": "🔐 Restablecer tu contraseña en MisBoletas",
-                    "html": email_html,
-                }
+            email_sent = await send_email(
+                recipient_email=data.email,
+                subject="🔐 Restablecer tu contraseña en MisBoletas",
+                html_content=email_html,
             )
 
-            logger.info(f"[OK] Email de reset enviado a {data.email}")
-            logger.info(f"[OK] Response: {email_response}")
+            if email_sent:
+                logger.info(f"[OK] Email de reset enviado a {data.email}")
+            else:
+                logger.error(
+                    f"[ERROR] No se pudo enviar el email de recuperación a {data.email}"
+                )
+                # No lanzar error 500 para no dar pistas al usuario, solo loguear
 
         except Exception as e:
-            logger.error(f"[ERROR] Error enviando email via Resend: {str(e)}")
-            logger.error(f"[ERROR] Exception type: {type(e).__name__}")
-            import traceback
-
-            logger.error(f"[ERROR] Traceback: {traceback.format_exc()}")
+            logger.error(f"[ERROR] Error enviando email via helper: {str(e)}")
             # No revelar errores internos al frontend
             return {
                 "status": "success",

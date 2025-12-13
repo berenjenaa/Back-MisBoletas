@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     MAIL_STARTTLS: bool = True  # Usar STARTTLS para conexión segura
     MAIL_SSL_TLS: bool = False  # No usar SSL directo (usa STARTTLS)
 
+    MAIL_SUPPORT: str = "soportemisboletas@gmail.com"  # Email donde llegan los tickets
     # === CONFIGURACIÓN DE DEEP LINKS (EMAIL BRIDGES) ===
     DEEP_LINK_BASE: str = "exp://192.168.88.7:8081"  # Base URL para deep links
     # Ejemplos:
