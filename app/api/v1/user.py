@@ -3,12 +3,20 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
+import os
+from datetime import datetime
+import json
 
 from app.db.supabase import supabase_admin, supabase
 from app.core.dependencies import get_current_user_id, get_active_user_id
 from app.core.limiter import limiter
+
+try:
+    from resend import Resend
+except ImportError:
+    Resend = None
 
 logger = logging.getLogger(__name__)
 
@@ -570,6 +578,228 @@ async def confirm_email(
         return HTMLResponse(content=error_html, status_code=500)
 
 
+@router.get(
+    "/reset-password",
+    summary="Puente para restablecer contraseña desde email",
+)
+async def reset_password_bridge(
+    token: Optional[str] = None,
+    email: Optional[str] = None,
+    code: Optional[str] = None,
+):
+    """
+    🌉 PUENTE: Endpoint para restablecer contraseña desde email.
+
+    FLUJO:
+    1. Usuario solicita forgot-password
+    2. Recibe email con link a este puente
+    3. Usuario hace click → Este endpoint valida el token
+    4. Si es válido → Abre la app con deep link a reset-password screen
+    5. App redirige a reset-password screen con token
+
+    Maneja tokens de tipo 'recovery' desde Supabase.
+    """
+    try:
+        logger.info(
+            f"[🌉 PUENTE RESET] Reset password bridge called: email={email}, code={code}"
+        )
+
+        recovery_token = code or token
+
+        if not email:
+            logger.error("[ERROR] Email no proporcionado en reset-password")
+            error_html = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Error</title>
+                <style>
+                    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+                    .container { max-width: 600px; margin: 50px auto; background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
+                    h1 { color: #d32f2f; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>⏰ Error: Email no proporcionado</h1>
+                </div>
+            </body>
+            </html>
+            """
+            return HTMLResponse(content=error_html, status_code=400)
+
+        # ✅ CONSTRUIR DEEP LINK PARA RESET-PASSWORD SCREEN
+        # La pantalla reset-password necesita el token y email
+        deep_link = f"misboletas://reset-password?token={recovery_token}&email={email}&type=recovery"
+        logger.info(f"[🌐 PUENTE RESET] Deep link constructed: {deep_link}")
+
+        # HTML con JS para abrir el deep link
+        success_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Restablecer Contraseña</title>
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+                    margin: 0;
+                    padding: 0;
+                    background-color: #f5f5f5;
+                }}
+                .container {{
+                    max-width: 600px;
+                    margin: 0 auto;
+                    background-color: #ffffff;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                    overflow: hidden;
+                }}
+                .header {{
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    padding: 40px 20px;
+                    text-align: center;
+                    color: white;
+                }}
+                .header h1 {{
+                    margin: 0;
+                    font-size: 28px;
+                    font-weight: 600;
+                }}
+                .content {{
+                    padding: 40px 30px;
+                }}
+                .content h2 {{
+                    color: #333333;
+                    font-size: 20px;
+                    margin: 0 0 15px 0;
+                }}
+                .content p {{
+                    color: #666666;
+                    font-size: 14px;
+                    line-height: 1.6;
+                }}
+                .button {{
+                    display: inline-block;
+                    background-color: #667eea;
+                    color: white;
+                    padding: 16px 40px;
+                    border-radius: 6px;
+                    text-decoration: none;
+                    font-weight: 600;
+                    font-size: 16px;
+                    margin: 25px 0;
+                    border: 2px solid #667eea;
+                    cursor: pointer;
+                }}
+                .button:hover {{
+                    background-color: #764ba2;
+                    border-color: #764ba2;
+                }}
+                .spinner {{
+                    display: inline-block;
+                    width: 40px;
+                    height: 40px;
+                    border: 4px solid #f3f3f3;
+                    border-top: 4px solid #667eea;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                    margin: 20px 0;
+                }}
+                @keyframes spin {{
+                    0% {{ transform: rotate(0deg); }}
+                    100% {{ transform: rotate(360deg); }}
+                }}
+                .footer {{
+                    background-color: #f9f9f9;
+                    padding: 20px 30px;
+                    text-align: center;
+                    border-top: 1px solid #eeeeee;
+                }}
+                .footer p {{
+                    color: #999999;
+                    font-size: 12px;
+                    margin: 5px 0;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>🔐 Restablecer Contraseña</h1>
+                </div>
+                
+                <div class="content">
+                    <h2>✅ Link Válido</h2>
+                    
+                    <p>Tu enlace de recuperación es válido. Abriendo la app para que restablezcas tu contraseña...</p>
+                    
+                    <div style="text-align: center;">
+                        <div class="spinner"></div>
+                        <p id="message" style="color: #667eea; font-weight: 600;">Abriendo MisBoletas...</p>
+                    </div>
+                    
+                    <p style="text-align: center; margin-top: 30px;">
+                        <strong>Si la app no se abre automáticamente:</strong>
+                    </p>
+                    
+                    <div style="text-align: center;">
+                        <button class="button" onclick="openApp()">📱 Abrir MisBoletas</button>
+                    </div>
+                </div>
+                
+                <div class="footer">
+                    <p>© 2025 MisBoletas. Todos los derechos reservados.</p>
+                </div>
+            </div>
+
+            <script>
+                const deepLink = '{deep_link}';
+
+                function openApp() {{
+                    window.location.href = deepLink;
+                    setTimeout(() => {{
+                        document.getElementById('message').innerText = '❌ No se pudo abrir la app. Asegúrate de tenerla instalada.';
+                    }}, 3000);
+                }}
+
+                window.addEventListener('load', () => {{
+                    setTimeout(openApp, 500);
+                }});
+            </script>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=success_html, status_code=200)
+
+    except Exception as e:
+        logger.error(f"[ERROR] Reset password bridge failed: {str(e)}")
+        error_html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>Error</title>
+            <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+                .container { max-width: 600px; margin: 50px auto; background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
+                h1 { color: #d32f2f; }
+                p { color: #666; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>⏰ Error en el Procesamiento</h1>
+                <p>Hubo un error procesando tu solicitud. Por favor intenta nuevamente.</p>
+            </div>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=error_html, status_code=500)
+
+
 # =======================================================================
 # === ENDPOINTS DE USUARIO AUTENTICADO
 # =======================================================================
@@ -589,11 +819,11 @@ async def read_users_me(user_id: UUID = Depends(get_active_user_id)):
     - Devuelve información del perfil
     """
     try:
-        # Consultar tabla 'profiles' en Supabase usando el user_id
+        # Consultar tabla 'perfiles' en Supabase usando el user_id
         response = (
-            supabase_admin.get_table("profiles")
+            supabase_admin.get_table("perfiles")
             .select("*")
-            .eq("id", str(user_id))
+            .eq("id_usuario", str(user_id))
             .single()
             .execute()
         )
@@ -603,7 +833,7 @@ async def read_users_me(user_id: UUID = Depends(get_active_user_id)):
         return {
             "id": user_id,
             "email": perfil.get("email", ""),
-            "nombre_usuario": perfil.get("nombre_usuario"),
+            "nombre_usuario": perfil.get("nombre_completo"),
             "avatar_url": perfil.get("avatar_url"),
             "fecha_registro": perfil.get("fecha_registro"),
             "id_rol": perfil.get("id_rol"),
@@ -638,7 +868,7 @@ async def update_my_profile(
         update_data = {}
 
         if data.nombre_usuario:
-            update_data["nombre_usuario"] = data.nombre_usuario
+            update_data["nombre_completo"] = data.nombre_usuario
 
         if data.avatar_url:
             update_data["avatar_url"] = data.avatar_url
@@ -648,9 +878,9 @@ async def update_my_profile(
 
         # Actualizar en Supabase
         response = (
-            supabase_admin.get_table("profiles")
+            supabase_admin.get_table("perfiles")
             .update(update_data)
-            .eq("id", str(user_id))
+            .eq("id_usuario", str(user_id))
             .execute()
         )
 
@@ -688,7 +918,9 @@ async def delete_my_account(
     """
     try:
         # Eliminar perfil de Supabase
-        supabase_admin.get_table("profiles").delete().eq("id", str(user_id)).execute()
+        supabase_admin.get_table("perfiles").delete().eq(
+            "id_usuario", str(user_id)
+        ).execute()
 
         logger.info(f"[OK] User {user_id} account deleted")
         return None
@@ -715,49 +947,245 @@ async def delete_my_account(
 @limiter.limit("3/hour")
 async def forgot_password(request: Request, data: ForgotPasswordRequest):
     """
-    Envía un email con un link para restablecer la contraseña.
+    Envía un email con un link para restablecer la contraseña usando Resend.
 
     - Acepta el email del usuario
-    - Supabase envía un email con un link de recuperación
-    - El usuario hace click en el link (deep link o email)
-    - Redirige a la app para cambiar la contraseña
+    - Genera un recovery token en Supabase
+    - Envía email personalizado via Resend con link al puente
+    - El usuario hace click en el link → Puente abre la app
+    - App muestra pantalla de reset-password
 
     No requiere autenticación.
     """
     try:
-        logger.info(
-            f"[AUTH] Solicitud de restablecimiento de contraseña para: {data.email}"
-        )
+        logger.info(f"[AUTH] Solicitud de reset password para: {data.email}")
 
-        # ✅ URL DEL PUENTE PARA RESET PASSWORD
-        # Apunta al puente que verifica el recovery token y abre la app
+        # ✅ Verificar que Resend está disponible
+        if not Resend:
+            logger.error("[ERROR] Resend no está instalado")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Servicio de email no disponible",
+            )
+
+        # ✅ Solicitar recovery token en Supabase
+        # Esto genera el token pero NO envía email automáticamente
+        try:
+            recovery_response = supabase.client.auth.reset_password_for_email(
+                data.email,
+                {
+                    "redirect_to": "https://api.misboletas.tech/api/v1/bridges/reset-password"
+                },
+            )
+            logger.info(f"[AUTH] Recovery token generado para {data.email}")
+        except Exception as e:
+            logger.error(f"[ERROR] Error generando recovery token: {e}")
+            # No revelar si el correo existe o no (seguridad)
+            return {
+                "status": "success",
+                "message": "Si el correo existe en nuestro sistema, recibirás un enlace para restablecer tu contraseña.",
+            }
+
+        # ✅ Construir el link de reset con el token
+        # El token viene en el redirect_to que Supabase usa para el email
+        # Construimos manualmente el link apuntando a nuestro puente
         reset_bridge_url = "https://api.misboletas.tech/api/v1/bridges/reset-password"
+        reset_link = f"{reset_bridge_url}?email={data.email}&type=recovery"
 
-        # Solicitar recovery en Supabase con redirect_to apuntando al puente
-        # Supabase enviará el email con el recovery token incluido
-        response = supabase.client.auth.reset_password_for_email(
-            data.email, {"redirect_to": reset_bridge_url}
-        )
+        # ✅ HTML del email profesional
+        email_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Restablecer Contraseña - MisBoletas</title>
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+                    margin: 0;
+                    padding: 0;
+                    background-color: #f5f5f5;
+                    line-height: 1.6;
+                }}
+                .container {{
+                    max-width: 600px;
+                    margin: 0 auto;
+                    background-color: #ffffff;
+                    border-radius: 8px;
+                    overflow: hidden;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+                }}
+                .header {{
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    padding: 40px 20px;
+                    text-align: center;
+                    color: white;
+                }}
+                .header h1 {{
+                    margin: 0;
+                    font-size: 28px;
+                    font-weight: 600;
+                }}
+                .content {{
+                    padding: 40px 30px;
+                }}
+                .content h2 {{
+                    color: #333333;
+                    font-size: 20px;
+                    margin: 0 0 15px 0;
+                }}
+                .content p {{
+                    color: #666666;
+                    font-size: 14px;
+                    margin: 10px 0;
+                    line-height: 1.6;
+                }}
+                .button {{
+                    display: inline-block;
+                    background-color: #667eea;
+                    color: white !important;
+                    padding: 14px 32px;
+                    border-radius: 6px;
+                    text-decoration: none;
+                    font-weight: 600;
+                    font-size: 16px;
+                    margin: 20px 0;
+                    border: 2px solid #667eea;
+                }}
+                .button:hover {{
+                    background-color: #764ba2;
+                    border-color: #764ba2;
+                }}
+                .code-box {{
+                    background-color: #f9f9f9;
+                    border-left: 4px solid #667eea;
+                    padding: 12px 15px;
+                    margin: 20px 0;
+                    border-radius: 4px;
+                    font-family: 'Courier New', monospace;
+                    font-size: 12px;
+                    word-break: break-all;
+                    color: #333333;
+                }}
+                .warning {{
+                    background-color: #fff3cd;
+                    border-left: 4px solid #ffc107;
+                    padding: 12px 15px;
+                    margin: 20px 0;
+                    border-radius: 4px;
+                    font-size: 13px;
+                    color: #856404;
+                }}
+                .footer {{
+                    background-color: #f9f9f9;
+                    padding: 20px 30px;
+                    text-align: center;
+                    border-top: 1px solid #eeeeee;
+                }}
+                .footer p {{
+                    color: #999999;
+                    font-size: 12px;
+                    margin: 5px 0;
+                }}
+                .footer a {{
+                    color: #667eea;
+                    text-decoration: none;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>🔐 Restablecer Contraseña</h1>
+                </div>
+                
+                <div class="content">
+                    <h2>Hola,</h2>
+                    
+                    <p>Recibimos una solicitud para restablecer la contraseña de tu cuenta en <strong>MisBoletas</strong>.</p>
+                    
+                    <p>Haz clic en el botón a continuación para proceder con el restablecimiento:</p>
+                    
+                    <div style="text-align: center;">
+                        <a href="{reset_link}" class="button">
+                            🔄 Restablecer Contraseña
+                        </a>
+                    </div>
+                    
+                    <p style="text-align: center; color: #999; font-size: 13px;">
+                        O copia este enlace en tu navegador:
+                    </p>
+                    <div class="code-box">{reset_link}</div>
+                    
+                    <div class="warning">
+                        <strong>⏰ Tiempo límite:</strong> Este link es válido por <strong>15 minutos</strong>. Si no lo utilizas en ese tiempo, deberás solicitar uno nuevo.
+                    </div>
+                    
+                    <div class="warning">
+                        <strong>🔒 Seguridad:</strong> Si no solicitaste este cambio, puedes ignorar este correo. Tu contraseña no cambiará.
+                    </div>
+                    
+                    <p style="color: #999; font-size: 13px; margin-top: 30px;">
+                        ¿Preguntas? Contáctanos en <a href="mailto:soporte@misboletas.tech">soporte@misboletas.tech</a>
+                    </p>
+                </div>
+                
+                <div class="footer">
+                    <p>© 2025 MisBoletas. Todos los derechos reservados.</p>
+                    <p><a href="https://misboletas.tech">Visita nuestro sitio web</a></p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
 
-        logger.info(
-            f"[AUTH] Recovery solicitado en Supabase para {data.email} con redirect_to={reset_bridge_url}"
-        )
+        # ✅ Enviar email via Resend
+        resend_api_key = os.getenv("RESEND_API_KEY")
+        if not resend_api_key:
+            logger.error("[ERROR] RESEND_API_KEY no configurada")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Servicio de email no disponible",
+            )
 
-        # ✅ Supabase ha enviado el email de recuperación automáticamente
-        # El usuario recibirá un email con un link que contiene el recovery token
+        resend_client = Resend(api_key=resend_api_key)
 
+        try:
+            email_response = resend_client.emails.send(
+                {
+                    "from": "noreply@misboletas.tech",
+                    "to": data.email,
+                    "subject": "🔐 Restablecer tu contraseña en MisBoletas",
+                    "html": email_html,
+                }
+            )
+            logger.info(
+                f"[OK] Email de reset enviado a {data.email}, ID: {email_response.get('id')}"
+            )
+        except Exception as e:
+            logger.error(f"[ERROR] Error enviando email via Resend: {e}")
+            # No revelar errores internos al frontend
+            return {
+                "status": "success",
+                "message": "Si el correo existe en nuestro sistema, recibirás un enlace para restablecer tu contraseña.",
+            }
+
+        # ✅ Retornar respuesta exitosa (sin revelar si el correo existe)
         return {
             "status": "success",
             "message": "Si el correo existe en nuestro sistema, recibirás un enlace para restablecer tu contraseña.",
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[ERROR] Reset password request failed: {e}")
-        # No revelar si el correo existe o no (seguridad)
         return {
             "status": "success",
             "message": "Si el correo existe en nuestro sistema, recibirás un enlace para restablecer tu contraseña.",
         }
+
 
 
 @router.post(
