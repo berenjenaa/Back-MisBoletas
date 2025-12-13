@@ -50,7 +50,7 @@ def parse_receipt_data(text: str) -> dict:
                     break
                 except:
                     pass
-    
+
     # Si no encuentra, intenta el método antiguo pero más conservador
     if not data["total"]:
         total_pattern = r"(?i)total[\s:.$]+([\d]{2,6}(?:\.?\d{0,3})*)\s*(?:$|\n)"

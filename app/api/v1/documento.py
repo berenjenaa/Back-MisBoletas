@@ -163,13 +163,15 @@ async def get_documentos_by_producto(
             .in_("id_documento", doc_ids)
             .execute()
         )
-        
+
         result = []
         for d in response.data or []:
             try:
                 doc_item = DocumentoListItem(
                     id_documento=d.get("id_documento"),
-                    nombrearchivo=d.get("nombrearchivo") or d.get("nombre_archivo") or "Archivo",
+                    nombrearchivo=d.get("nombrearchivo")
+                    or d.get("nombre_archivo")
+                    or "Archivo",
                     tipo_documento=d.get("tipo_documento"),
                     fecha_creacion=d.get("fecha_creacion"),
                     url_gcs=d.get("url_gcs"),
@@ -177,7 +179,9 @@ async def get_documentos_by_producto(
                 )
                 result.append(doc_item)
             except Exception as field_error:
-                logger.warning(f"[WARNING] Skipping doc {d.get('id_documento')}: {field_error}")
+                logger.warning(
+                    f"[WARNING] Skipping doc {d.get('id_documento')}: {field_error}"
+                )
         return result
 
     except Exception as e:

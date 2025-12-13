@@ -34,6 +34,9 @@ APScheduler==3.10.4
 # === Detección de MIME type ===
 python-magic==0.4.27
 
+# === Procesamiento de imágenes ===
+Pillow==11.0.0
+
 # === Dependencias indirectas (especificadas para estabilidad) ===
 pydantic_core==2.33.2
 typing-inspection==0.4.1

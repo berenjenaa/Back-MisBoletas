@@ -86,7 +86,7 @@ async def get_products(
                     f"[WARNING] Failed to fetch categories for product {producto['id_producto']}: {cat_error}"
                 )
                 producto["categorias"] = []
-            
+
             # Contar documentos del producto
             try:
                 doc_response = (
@@ -272,11 +272,11 @@ async def update_product(
             payload["precio"] = float(product_data.precio)
         if product_data.id_organizacion is not None:
             payload["id_organizacion"] = str(product_data.id_organizacion)
-        
+
         if not payload:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No hay campos para actualizar"
+                detail="No hay campos para actualizar",
             )
 
         response = (
