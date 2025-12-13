@@ -978,6 +978,7 @@ async def forgot_password(request: Request, data: ForgotPasswordRequest):
                 },
             )
             logger.info(f"[AUTH] Recovery token generado para {data.email}")
+            logger.debug(f"[DEBUG] Recovery response: {recovery_response}")
         except Exception as e:
             logger.error(f"[ERROR] Error generando recovery token: {e}")
             # No revelar si el correo existe o no (seguridad)
@@ -987,10 +988,12 @@ async def forgot_password(request: Request, data: ForgotPasswordRequest):
             }
 
         # ✅ Construir el link de reset con el token
-        # El token viene en el redirect_to que Supabase usa para el email
-        # Construimos manualmente el link apuntando a nuestro puente
+        # Supabase enviará el token via email, pero nosotros construiremos el link manualmente
+        # para Resend usando los parámetros apropiados
         reset_bridge_url = "https://api.misboletas.tech/api/v1/bridges/reset-password"
+        # El token será incluido por Supabase en su email, pero para nuestro email con Resend:
         reset_link = f"{reset_bridge_url}?email={data.email}&type=recovery"
+        logger.info(f"[AUTH] Reset link construido: {reset_link}")
 
         # ✅ HTML del email profesional
         email_html = f"""
@@ -1142,16 +1145,21 @@ async def forgot_password(request: Request, data: ForgotPasswordRequest):
 
         # ✅ Enviar email via Resend
         resend_api_key = os.getenv("RESEND_API_KEY")
-        if not resend_api_key:
-            logger.error("[ERROR] RESEND_API_KEY no configurada")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Servicio de email no disponible",
-            )
+        logger.info(f"[AUTH] RESEND_API_KEY configured: {bool(resend_api_key)}")
 
-        resend_client = Resend(api_key=resend_api_key)
+        if not resend_api_key:
+            logger.error("[ERROR] RESEND_API_KEY no configurada en .env")
+            # No revelar el error interno al usuario
+            return {
+                "status": "success",
+                "message": "Si el correo existe en nuestro sistema, recibirás un enlace para restablecer tu contraseña.",
+            }
 
         try:
+            logger.info(f"[AUTH] Inicializando Resend con API key")
+            resend_client = Resend(api_key=resend_api_key)
+            logger.info(f"[AUTH] Enviando email via Resend a {data.email}")
+
             email_response = resend_client.emails.send(
                 {
                     "from": "noreply@misboletas.tech",
@@ -1160,11 +1168,16 @@ async def forgot_password(request: Request, data: ForgotPasswordRequest):
                     "html": email_html,
                 }
             )
-            logger.info(
-                f"[OK] Email de reset enviado a {data.email}, ID: {email_response.get('id')}"
-            )
+
+            logger.info(f"[OK] Email de reset enviado a {data.email}")
+            logger.info(f"[OK] Response: {email_response}")
+
         except Exception as e:
-            logger.error(f"[ERROR] Error enviando email via Resend: {e}")
+            logger.error(f"[ERROR] Error enviando email via Resend: {str(e)}")
+            logger.error(f"[ERROR] Exception type: {type(e).__name__}")
+            import traceback
+
+            logger.error(f"[ERROR] Traceback: {traceback.format_exc()}")
             # No revelar errores internos al frontend
             return {
                 "status": "success",
@@ -1185,7 +1198,6 @@ async def forgot_password(request: Request, data: ForgotPasswordRequest):
             "status": "success",
             "message": "Si el correo existe en nuestro sistema, recibirás un enlace para restablecer tu contraseña.",
         }
-
 
 
 @router.post(
