@@ -28,6 +28,10 @@ class UserLoginRequest(BaseModel):
     contrasena: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr  # El frontend envía "email"
+
+
 class VerifyOTPRequest(BaseModel):
     email: EmailStr
     token: str
@@ -709,11 +713,11 @@ async def delete_my_account(
     summary="Solicitar restablecimiento de contraseña",
 )
 @limiter.limit("3/hour")
-async def forgot_password(request: Request, data: UserLoginRequest):
+async def forgot_password(request: Request, data: ForgotPasswordRequest):
     """
     Envía un email con un link para restablecer la contraseña.
 
-    - Acepta el correo del usuario
+    - Acepta el email del usuario
     - Supabase envía un email con un link de recuperación
     - El usuario hace click en el link (deep link o email)
     - Redirige a la app para cambiar la contraseña
@@ -721,7 +725,9 @@ async def forgot_password(request: Request, data: UserLoginRequest):
     No requiere autenticación.
     """
     try:
-        logger.info("[AUTH] Solicitud de restablecimiento de contraseña")
+        logger.info(
+            f"[AUTH] Solicitud de restablecimiento de contraseña para: {data.email}"
+        )
 
         # ✅ URL DEL PUENTE PARA RESET PASSWORD
         # Apunta al puente que verifica el recovery token y abre la app
@@ -730,11 +736,11 @@ async def forgot_password(request: Request, data: UserLoginRequest):
         # Solicitar recovery en Supabase con redirect_to apuntando al puente
         # Supabase enviará el email con el recovery token incluido
         response = supabase.client.auth.reset_password_for_email(
-            data.correo, {"redirect_to": reset_bridge_url}
+            data.email, {"redirect_to": reset_bridge_url}
         )
 
         logger.info(
-            f"[AUTH] Recovery solicitado en Supabase con redirect_to={reset_bridge_url}"
+            f"[AUTH] Recovery solicitado en Supabase para {data.email} con redirect_to={reset_bridge_url}"
         )
 
         # ✅ Supabase ha enviado el email de recuperación automáticamente
