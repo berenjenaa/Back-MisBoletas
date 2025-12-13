@@ -265,7 +265,31 @@ async def create_product(
                 logger.warning(f"[WARNING] Error saving categories: {e}")
                 # No fallar si hay error al guardar categorías
 
-        return ProductRead(**response.data[0])
+        # ✅ ARREGLADO: Obtener el producto creado con sus categorías
+        producto_creado = response.data[0]
+
+        # Cargar categorías del producto creado
+        try:
+            cat_response = (
+                supabase_admin.get_table("producto_categorias")
+                .select("id_categoria, categorias(id_categoria, nombre, color)")
+                .eq("id_producto", str(producto_id))
+                .execute()
+            )
+            categorias = []
+            if cat_response.data:
+                for pc in cat_response.data:
+                    if pc.get("categorias"):
+                        categorias.append(pc["categorias"])
+                    else:
+                        categorias.extend(pc.get("categorias", []))
+
+            producto_creado["categorias"] = categorias
+        except Exception as cat_error:
+            logger.warning(f"[WARNING] Failed to fetch created categories: {cat_error}")
+            producto_creado["categorias"] = []
+
+        return ProductRead(**producto_creado)
     except HTTPException:
         raise
     except Exception as e:
@@ -353,7 +377,31 @@ async def update_product(
                 logger.warning(f"[WARNING] Error updating categories: {e}")
                 # No fallar si hay error al guardar categorías
 
-        return ProductRead(**response.data[0])
+        # ✅ ARREGLADO: Obtener el producto actualizado con sus categorías
+        producto_actualizado = response.data[0]
+
+        # Cargar categorías del producto actualizado
+        try:
+            cat_response = (
+                supabase_admin.get_table("producto_categorias")
+                .select("id_categoria, categorias(id_categoria, nombre, color)")
+                .eq("id_producto", str(product_id))
+                .execute()
+            )
+            categorias = []
+            if cat_response.data:
+                for pc in cat_response.data:
+                    if pc.get("categorias"):
+                        categorias.append(pc["categorias"])
+                    else:
+                        categorias.extend(pc.get("categorias", []))
+
+            producto_actualizado["categorias"] = categorias
+        except Exception as cat_error:
+            logger.warning(f"[WARNING] Failed to fetch updated categories: {cat_error}")
+            producto_actualizado["categorias"] = []
+
+        return ProductRead(**producto_actualizado)
     except HTTPException:
         raise
     except Exception as e:
