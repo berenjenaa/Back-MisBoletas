@@ -118,6 +118,40 @@ async def get_products(
         )
 
 
+# --- HISTORIAL Y RESTAURACIÓN (ANTES DE /{product_id}) ---
+
+
+@router.get(
+    "/historial/eliminados",
+    response_model=List[ProductRead],
+    summary="Historial de eliminados",
+)
+async def get_deleted_products(
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """Obtiene los productos que han sido eliminados (Papelera)."""
+    try:
+        # Traemos productos donde fecha_eliminacion NO es null
+        response = (
+            supabase_admin.get_table("productos")
+            .select("*")
+            .eq("id_usuario", str(user_id))
+            .not_.is_("fecha_eliminacion", "null")
+            .order("fecha_eliminacion", desc=True)
+            .execute()
+        )
+        productos = response.data or []
+
+        # Opcional: Rellenar categorías vacías para cumplir el schema
+        for p in productos:
+            p["categorias"] = []
+
+        return [ProductRead(**p) for p in productos]
+    except Exception as e:
+        logger.error(f"[ERROR] Failed to get history: {e}")
+        return []
+
+
 @router.get(
     "/{product_id}", response_model=ProductRead, summary="Obtener un producto por ID"
 )
@@ -376,4 +410,31 @@ async def delete_product(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al eliminar producto",
+        )
+
+
+@router.put(
+    "/{product_id}/restaurar",
+    status_code=status.HTTP_200_OK,
+    summary="Restaurar producto",
+)
+async def restore_product(
+    product_id: UUID,
+    user_id: UUID = Depends(get_active_user_id),
+):
+    """Restaura un producto eliminado (pone fecha_eliminacion en null)."""
+    try:
+        response = (
+            supabase_admin.get_table("productos")
+            .update({"fecha_eliminacion": None})
+            .eq("id_producto", str(product_id))
+            .eq("id_usuario", str(user_id))
+            .execute()
+        )
+        if not response.data:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Producto no encontrado")
+        return {"message": "Producto restaurado exitosamente"}
+    except Exception as e:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, f"Error al restaurar: {str(e)}"
         )
