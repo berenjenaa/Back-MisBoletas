@@ -36,33 +36,43 @@ def parse_receipt_data(text: str) -> dict:
         data["fecha"] = date_match.group(0)
 
     # 2. Extraer TOTAL
-    # Busca patrones como: Total $10.000, Total: 10000, pero preferiblemente después de líneas con TOTAL
-    # Usa un patrón más específico para evitar capturar códigos de producto
+    # Busca patrones como: Total $10.000, Total: 10000, evitando códigos de producto muy largos
+    # Estrategia: buscar TODOS los "TOTAL" y tomar el ÚLTIMO (es el más probable que sea el final)
     lines = text.split("\n")
-    for i, line in enumerate(lines):
-        if re.search(r"(?i)^\s*total\s", line):
-            # Busca números en esta línea específica
-            numbers = re.findall(r"(\d+)", line)
-            if numbers:
-                # Toma el último número de la línea (es más probable que sea el total)
-                try:
-                    data["total"] = int(numbers[-1])
-                    break
-                except:
-                    pass
+    total_candidates = []
 
-    # Si no encuentra, intenta el método antiguo pero más conservador
+    for i, line in enumerate(lines):
+        # Busca líneas que contengan "TOTAL" (pero no SUBTOTAL, NETO, etc. como primer token)
+        if re.search(r"(?i)^\s*total\s", line) and not re.search(
+            r"(?i)^\s*(?:neto|subtotal)\s", line
+        ):
+            # Extrae todos los números de esta línea
+            numbers = re.findall(r"\d+", line)
+            if numbers:
+                # Filtra códigos de producto muy largos (típicamente > 10 dígitos)
+                filtered = [int(n) for n in numbers if len(n) <= 10]
+                if filtered:
+                    # Toma el número más grande de los filtrados (generalmente es el total)
+                    total_candidates.append(max(filtered))
+
+    # Si tenemos candidatos, toma el ÚLTIMO (es el total final, no descuentos intermedios)
+    if total_candidates:
+        data["total"] = total_candidates[-1]
+
+    # Si no encuentra por método principal, intenta patrón regex más flexible
     if not data["total"]:
-        total_pattern = r"(?i)total[\s:.$]+([\d]{2,6}(?:\.?\d{0,3})*)\s*(?:$|\n)"
-        total_matches = re.finditer(total_pattern, text, re.MULTILINE)
-        for match in total_matches:
-            raw_amount = match.group(1).replace(".", "").replace(",", ".")
+        # Busca específicamente la línea "TOTAL" seguida de un número
+        total_pattern = r"(?i)^\s*total\s+(?:\$)?(?:CHI)?[\s]*(\d+(?:[.,]\d{2})?)"
+        total_matches = list(re.finditer(total_pattern, text, re.MULTILINE))
+        if total_matches:
+            # Toma el ÚLTIMO match (es el total final)
+            last_match = total_matches[-1]
+            raw_amount = last_match.group(1).replace(".", "").replace(",", "")
             try:
-                amount = int(float(raw_amount))
+                amount = int(raw_amount)
                 # Solo aceptar si está en rango razonable (0 a 50 millones CLP aprox)
                 if 0 < amount < 50000000:
                     data["total"] = amount
-                    break
             except:
                 pass
 
