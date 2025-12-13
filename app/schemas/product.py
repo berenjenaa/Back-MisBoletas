@@ -36,6 +36,7 @@ class ProductRead(BaseModel):
     fecha_creacion: Optional[str] = (
         None  # Cambio: datetime → Optional[str] para compatibilidad con Supabase
     )
+    numero_documentos: Optional[int] = 0  # Número de documentos asociados
 
     model_config = ConfigDict(from_attributes=True)
 

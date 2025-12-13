@@ -60,41 +60,47 @@ async def get_products(
 
         productos = response.data or []
 
-        # ✅ Paso 2 OPTIMIZADO: Obtener TODAS las categorías en UNA sola query (JOIN)
-        if productos:
-            producto_ids = [str(p["id_producto"]) for p in productos]
+        # Paso 2: Para cada producto, obtener sus categorías y contar documentos
+        for producto in productos:
             try:
-                # Single query con JOIN en lugar de N+1
                 cat_response = (
                     supabase_admin.get_table("producto_categorias")
-                    .select("id_producto, categorias(id_categoria, nombre, color)")
-                    .in_("id_producto", producto_ids)
+                    .select("id_categoria, categorias(id_categoria, nombre, color)")
+                    .eq("id_producto", str(producto["id_producto"]))
                     .execute()
                 )
-
-                # Agrupar categorías por producto ID
-                categorias_by_producto = {}
+                # Extraer solo las categorías (nested select)
+                categorias = []
                 if cat_response.data:
                     for pc in cat_response.data:
-                        prod_id = pc["id_producto"]
-                        if prod_id not in categorias_by_producto:
-                            categorias_by_producto[prod_id] = []
-
                         if pc.get("categorias"):
-                            categorias_by_producto[prod_id].append(pc["categorias"])
+                            # Si viene como objeto nested
+                            categorias.append(pc["categorias"])
+                        else:
+                            # Si viene como array
+                            categorias.extend(pc.get("categorias", []))
 
-                # Asignar categorías a cada producto
-                for producto in productos:
-                    prod_id = str(producto["id_producto"])
-                    producto["categorias"] = categorias_by_producto.get(prod_id, [])
-
+                producto["categorias"] = categorias
             except Exception as cat_error:
                 logger.warning(
-                    f"[WARNING] Failed to fetch categories (JOIN): {cat_error}"
+                    f"[WARNING] Failed to fetch categories for product {producto['id_producto']}: {cat_error}"
                 )
-                # Si falla, al menos tener la estructura vacía
-                for producto in productos:
-                    producto["categorias"] = []
+                producto["categorias"] = []
+            
+            # Contar documentos del producto
+            try:
+                doc_response = (
+                    supabase_admin.get_table("documento_productos")
+                    .select("count", count="exact")
+                    .eq("id_producto", str(producto["id_producto"]))
+                    .execute()
+                )
+                producto["numero_documentos"] = doc_response.count or 0
+            except Exception as doc_error:
+                logger.warning(
+                    f"[WARNING] Failed to count documents for product {producto['id_producto']}: {doc_error}"
+                )
+                producto["numero_documentos"] = 0
 
         return [ProductRead(**p) for p in productos]
     except Exception as e:
@@ -266,11 +272,11 @@ async def update_product(
             payload["precio"] = float(product_data.precio)
         if product_data.id_organizacion is not None:
             payload["id_organizacion"] = str(product_data.id_organizacion)
-
+        
         if not payload:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No hay campos para actualizar",
+                detail="No hay campos para actualizar"
             )
 
         response = (

@@ -36,17 +36,35 @@ def parse_receipt_data(text: str) -> dict:
         data["fecha"] = date_match.group(0)
 
     # 2. Extraer TOTAL
-    # Busca patrones como: Total $10.000, Total: 10000, Monto: 5000
-    total_pattern = r"(?i)(?:total|monto|pagar)[\s:.$]*([\d,.]+)"
-    total_match = re.search(total_pattern, text)
-    if total_match:
-        # Limpiar el número (quitar puntos y dejar solo dígitos y punto decimal si es necesario)
-        # Asumimos formato chileno donde el punto es separador de miles
-        raw_amount = total_match.group(1).replace(".", "").replace(",", ".")
-        try:
-            data["total"] = int(float(raw_amount))
-        except:
-            pass
+    # Busca patrones como: Total $10.000, Total: 10000, pero preferiblemente después de líneas con TOTAL
+    # Usa un patrón más específico para evitar capturar códigos de producto
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        if re.search(r"(?i)^\s*total\s", line):
+            # Busca números en esta línea específica
+            numbers = re.findall(r"(\d+)", line)
+            if numbers:
+                # Toma el último número de la línea (es más probable que sea el total)
+                try:
+                    data["total"] = int(numbers[-1])
+                    break
+                except:
+                    pass
+    
+    # Si no encuentra, intenta el método antiguo pero más conservador
+    if not data["total"]:
+        total_pattern = r"(?i)total[\s:.$]+([\d]{2,6}(?:\.?\d{0,3})*)\s*(?:$|\n)"
+        total_matches = re.finditer(total_pattern, text, re.MULTILINE)
+        for match in total_matches:
+            raw_amount = match.group(1).replace(".", "").replace(",", ".")
+            try:
+                amount = int(float(raw_amount))
+                # Solo aceptar si está en rango razonable (0 a 50 millones CLP aprox)
+                if 0 < amount < 50000000:
+                    data["total"] = amount
+                    break
+            except:
+                pass
 
     # 3. Extraer COMERCIO (Lista de tiendas comunes en Chile)
     tiendas_comunes = [
