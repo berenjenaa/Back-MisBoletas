@@ -27,6 +27,11 @@ async def notificar_ticket_creado(
     """
     try:
         # --- CORREO 1: ALERTA A SOPORTE ---
+        # Asegúrate de tener MAIL_SUPPORT en tu config.py o usar un string fijo aquí si falla
+        destinatario_soporte = getattr(
+            settings, "MAIL_SUPPORT", "soportemisboletas@gmail.com"
+        )
+
         html_soporte = f"""
         <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e74c3c; border-radius: 8px;">
             <h2 style="color: #c0392b;">🔥 Nuevo Ticket de Soporte</h2>
@@ -40,11 +45,11 @@ async def notificar_ticket_creado(
         """
 
         await send_email(
-            recipient_email=settings.MAIL_SUPPORT,
+            recipient_email=destinatario_soporte,
             subject=f"[Soporte] {datos_email['asunto']} (P: {datos_email['prioridad']})",
             html_content=html_soporte,
         )
-        logger.info(f"✅ Alerta enviada a soporte: {settings.MAIL_SUPPORT}")
+        logger.info(f"✅ Alerta enviada a soporte: {destinatario_soporte}")
 
         # --- CORREO 2: CONFIRMACIÓN AL USUARIO ---
         html_usuario = f"""
@@ -102,6 +107,7 @@ async def create_ticket(
             "fecha_creacion": datetime.now().isoformat(),
         }
 
+        # 🔴 CORRECCIÓN AQUÍ: Usamos "tickets_soporte" en lugar de "tickets"
         response = (
             supabase_admin.get_table("tickets_soporte").insert(ticket_payload).execute()
         )
@@ -110,17 +116,17 @@ async def create_ticket(
             raise HTTPException(status_code=400, detail="Error al guardar el ticket")
 
         new_ticket = response.data[0]
+        # Ajuste para obtener el ID independientemente de cómo lo devuelva la BD
         ticket_id = new_ticket.get("id_ticket") or new_ticket.get("id")
 
         # 3. Preparar datos para el correo (Inyectando la prioridad)
-        # Como ticket_data (schema) ya no tiene prioridad, creamos un dict manual
         datos_para_email = ticket_data.dict()
-        datos_para_email["prioridad"] = PRIORIDAD_DEFAULT  # <--- Agregamos lo que falta
+        datos_para_email["prioridad"] = PRIORIDAD_DEFAULT
 
         # 4. Enviar correos
         background_tasks.add_task(
             notificar_ticket_creado,
-            datos_email=datos_para_email,  # Pasamos el dict completo
+            datos_email=datos_para_email,
             email_usuario=email_usuario,
             ticket_id=str(ticket_id),
         )
@@ -131,15 +137,16 @@ async def create_ticket(
         raise
     except Exception as e:
         logger.error(f"[ERROR] Failed to create ticket: {e}")
+        # El log detallado del error de Supabase se verá en la consola de Render
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno al procesar el ticket",
         )
 
 
-# (Endpoints GET se mantienen igual...)
 @router.get("", response_model=List[TicketRead])
 async def get_tickets(user_id: UUID = Depends(get_active_user_id)):
+    # 🔴 CORRECCIÓN AQUÍ: Usamos "tickets_soporte"
     response = (
         supabase_admin.get_table("tickets_soporte")
         .select("*")
@@ -152,6 +159,7 @@ async def get_tickets(user_id: UUID = Depends(get_active_user_id)):
 
 @router.get("/{ticket_id}", response_model=TicketRead)
 async def get_ticket(ticket_id: UUID, user_id: UUID = Depends(get_active_user_id)):
+    # 🔴 CORRECCIÓN AQUÍ: Usamos "tickets_soporte"
     response = (
         supabase_admin.get_table("tickets_soporte")
         .select("*")
@@ -162,4 +170,4 @@ async def get_ticket(ticket_id: UUID, user_id: UUID = Depends(get_active_user_id
     )
     if not response.data:
         raise HTTPException(status_code=404, detail="No encontrado")
-    return TicketRead(**response.data[0])
+    return TicketRead(**response.data)
