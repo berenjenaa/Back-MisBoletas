@@ -17,35 +17,41 @@ router = APIRouter(prefix="/categorias")
 logger = logging.getLogger(__name__)
 
 
-@router.get("/", response_model=List[CategoriaRead])
-async def list_categorias(
-    user_id: UUID = Depends(get_active_user_id),
-):
-    """
-    Obtener todas las categorías del usuario (excluyendo eliminadas).
-    """
+@router.get("", response_model=List[CategoriaRead])
+async def get_categorias(user_id: UUID = Depends(get_current_user_id)):
+    """Obtiene categorías con el conteo de productos."""
     try:
+        # 1. Obtener categorías
         response = (
             supabase_admin.get_table("categorias")
             .select("*")
             .eq("id_usuario", str(user_id))
-            .is_("fecha_eliminacion", "null")  # Soft delete filter
+            .is_("fecha_eliminacion", "null")
             .execute()
         )
-        return response.data or []
+
+        categorias = response.data or []
+
+        # 2. Calcular conteo para cada una
+        for cat in categorias:
+            try:
+                # Contamos cuántas veces aparece el id_categoria en la tabla intermedia
+                count_res = (
+                    supabase_admin.get_table("producto_categorias")
+                    .select("count", count="exact")
+                    .eq("id_categoria", str(cat["id_categoria"]))
+                    .execute()
+                )
+
+                cat["numero_productos"] = count_res.count or 0
+            except Exception:
+                cat["numero_productos"] = 0
+
+        return [CategoriaRead(**c) for c in categorias]
+
     except Exception as e:
-        error_str = str(e).lower()
-        logger.error(f"[ERROR] Failed to list categorias: {e}", exc_info=True)
-        # Si es error de RLS (dict con code 42501 o mensaje permission denied)
-        if "42501" in error_str or "permission denied" in error_str:
-            logger.warning(
-                f"[WARNING] RLS blocked categorias query - returning empty list"
-            )
-            return []
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error obteniendo categorías. Por favor intenta más tarde.",
-        )
+        logger.error(f"Error getting categories: {e}")
+        return []
 
 
 @router.get("/{categoria_id}", response_model=CategoriaRead)
