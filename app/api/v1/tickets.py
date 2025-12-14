@@ -102,7 +102,9 @@ async def create_ticket(
             "fecha_creacion": datetime.now().isoformat(),
         }
 
-        response = supabase_admin.get_table("tickets").insert(ticket_payload).execute()
+        response = (
+            supabase_admin.get_table("tickets_soporte").insert(ticket_payload).execute()
+        )
 
         if not response.data:
             raise HTTPException(status_code=400, detail="Error al guardar el ticket")
@@ -139,7 +141,7 @@ async def create_ticket(
 @router.get("", response_model=List[TicketRead])
 async def get_tickets(user_id: UUID = Depends(get_active_user_id)):
     response = (
-        supabase_admin.get_table("tickets")
+        supabase_admin.get_table("tickets_soporte")
         .select("*")
         .eq("id_usuario", str(user_id))
         .order("fecha_creacion", desc=True)
@@ -151,7 +153,7 @@ async def get_tickets(user_id: UUID = Depends(get_active_user_id)):
 @router.get("/{ticket_id}", response_model=TicketRead)
 async def get_ticket(ticket_id: UUID, user_id: UUID = Depends(get_active_user_id)):
     response = (
-        supabase_admin.get_table("tickets")
+        supabase_admin.get_table("tickets_soporte")
         .select("*")
         .eq("id_ticket", str(ticket_id))
         .eq("id_usuario", str(user_id))
