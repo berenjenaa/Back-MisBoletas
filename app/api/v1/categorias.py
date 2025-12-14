@@ -10,7 +10,6 @@ from app.schemas.categorias import (
     CategoriaBase,
     CategoriaCreate,
     CategoriaRead,
-    CategoriaWithProducts,
 )
 
 router = APIRouter(prefix="/categorias")
