@@ -115,7 +115,7 @@ async def upload_documento(
                 background_process_ocr(
                     documento_id=str(documento["id_documento"]),
                     gcs_uri=upload_result["gcs_uri"],
-                    mime_type=file_mime,  # <--- CRÍTICO: Pasar el mime_type real
+                    mime_type=file_mime,
                     user_id=str(user_id),
                 )
             )
@@ -167,10 +167,11 @@ async def get_documentos_by_producto(
         result = []
         for d in response.data or []:
             try:
+                # ✅ CORRECCIÓN AQUÍ: Usamos nombre_archivo (con guion bajo)
                 doc_item = DocumentoListItem(
                     id_documento=d.get("id_documento"),
-                    nombrearchivo=d.get("nombrearchivo")
-                    or d.get("nombre_archivo")
+                    nombre_archivo=d.get("nombre_archivo")
+                    or d.get("nombrearchivo")
                     or "Archivo",
                     tipo_documento=d.get("tipo_documento"),
                     fecha_creacion=d.get("fecha_creacion"),
