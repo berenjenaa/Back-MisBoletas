@@ -3,23 +3,21 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from uuid import UUID
-from datetime import datetime, timedelta
-import logging
-import os
 from datetime import datetime
-import json
+import logging
 
 from app.db.supabase import supabase_admin, supabase
 from app.core.dependencies import get_current_user_id, get_active_user_id
 from app.core.limiter import limiter
-from app.core.email_config import send_email  # <--- ✅ IMPORT CORREGIDO
+from app.core.email_config import send_email
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/users")
 
+# --- SCHEMAS ACTUALIZADOS ---
 
-# Schemas para request/response
+
 class UserRegisterRequest(BaseModel):
     correo: EmailStr
     contrasena: str
@@ -33,19 +31,26 @@ class UserLoginRequest(BaseModel):
 
 
 class ForgotPasswordRequest(BaseModel):
-    email: EmailStr  # El frontend envía "email"
+    email: EmailStr
 
 
 class VerifyOTPRequest(BaseModel):
     email: EmailStr
     token: str
-    type: str  # 'signup' o 'recovery'
+    type: str
 
 
+# ✅ ACTUALIZADO: Incluye refresh_token
 class UserAuthResponse(BaseModel):
     access_token: str
+    refresh_token: Optional[str] = None
     token_type: str
-    user: dict  # Contiene: id_usuario, email, nombre_completo, fecha_registro
+    user: dict
+
+
+# ✅ NUEVO: Request para refrescar token
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
 
 
 class UserUpdateRequest(BaseModel):
@@ -62,45 +67,21 @@ class UserProfileResponse(BaseModel):
     id_rol: Optional[int] = None
 
 
-# =======================================================================
-# === ENDPOINTS DE AUTENTICACIÓN (Sin requerir token)
-# =======================================================================
+# --- ENDPOINTS ---
 
 
 @router.post(
-    "/register",
-    response_model=UserAuthResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Registrarse (crear cuenta)",
+    "/register", response_model=UserAuthResponse, status_code=status.HTTP_201_CREATED
 )
 async def register(data: UserRegisterRequest):
-    """
-    Registra un nuevo usuario en Supabase Auth.
-
-    - Crea una cuenta en Supabase Auth
-    - El trigger on_auth_user_created automáticamente:
-      * Crea el perfil en la tabla 'perfiles'
-      * Crea categorías predefinidas
-    - Retorna access_token para usar en otros endpoints
-    """
     try:
         logger.info("[AUTH] Registro iniciado")
-
-        # ✅ URL DEL PUENTE (DEFINITIVA Y PROFESIONAL)
-        # Este es el endpoint en /auth/confirm que verifica y abre la app
         puente_url = "https://api.misboletas.tech/api/v1/auth/confirm"
-
-        # Preparar opciones de autenticación para Supabase
         auth_options = {
             "data": {"full_name": data.nombre or data.correo.split("@")[0]},
-            "email_redirect_to": puente_url,  # ✅ SIEMPRE USAR EL PUENTE EN /auth/confirm
+            "email_redirect_to": puente_url,
         }
 
-        logger.info("[AUTH] Email de confirmación configurado")
-
-        # Registrar en Supabase Auth con opciones
-        # El trigger on_auth_user_created se ejecutará automáticamente
-        # Supabase enviará el email con el token incluido
         res = supabase.client.auth.sign_up(
             {
                 "email": data.correo,
@@ -110,33 +91,17 @@ async def register(data: UserRegisterRequest):
         )
 
         if not res.user:
-            error_msg = str(res) if res else "Unknown error"
-            logger.error("[AUTH] Fallo en registro de usuario")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Registration failed: {error_msg}",
-            )
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Registration failed")
 
         user_id = UUID(res.user.id)
-        logger.info(f"[AUTH] Usuario registrado exitosamente")
 
-        # ✅ Supabase ha enviado el email de confirmación automáticamente
-        # El usuario recibirá un email con un link al puente que contiene el OTP
-
-        # Si hay session (usuario confirmó al registrarse), usarla
-        # Si no hay session (pendiente confirmación), retornar sin access_token
-        access_token = ""
-        if res.session:
-            access_token = res.session.access_token
-            logger.info("[AUTH] Sesión activa proporcionada")
-        else:
-            # Usuario registrado pero pendiente confirmación de email
-            # El email ya fue enviado por Supabase con el link al puente
-            logger.info("[AUTH] ⏳ Registro pendiente de confirmación de email")
-            access_token = ""
+        # Devolver tokens si la sesión existe (auto-confirmación o similar)
+        access_token = res.session.access_token if res.session else ""
+        refresh_token = res.session.refresh_token if res.session else None
 
         return {
             "access_token": access_token,
+            "refresh_token": refresh_token,
             "token_type": "bearer",
             "user": {
                 "id_usuario": str(user_id),
@@ -145,105 +110,64 @@ async def register(data: UserRegisterRequest):
                 "fecha_registro": datetime.now().isoformat(),
             },
         }
-
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"[AUTH] Error en registro: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Error al registrarse. Por favor intenta más tarde.",
-        )
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Error al registrarse.")
 
 
-@router.post(
-    "/login",
-    response_model=UserAuthResponse,
-    summary="Iniciar sesión",
-)
+@router.post("/login", response_model=UserAuthResponse)
 async def login(data: UserLoginRequest):
-    """
-    Inicia sesión con email y contraseña.
-
-    - Valida credenciales en Supabase Auth
-    - Retorna access_token para usar en otros endpoints
-    """
     try:
-        # Login en Supabase Auth
         res = supabase.client.auth.sign_in_with_password(
             {"email": data.correo, "password": data.contrasena}
         )
 
         if not res.user or not res.session:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
-            )
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Credenciales inválidas")
 
         user_id = UUID(res.user.id)
-
         logger.info(f"[OK] User logged in: {data.correo}")
-
-        # Nota: No consultamos table("perfiles") aquí porque RLS lo bloquea
-        # El usuario será autenticado en cada request via JWT
-        # Los datos del perfil se obtienen en endpoints específicos si es necesario
 
         return {
             "access_token": res.session.access_token,
+            "refresh_token": res.session.refresh_token,  # ✅ Devolvemos refresh token
             "token_type": "bearer",
             "user": {
                 "id_usuario": str(user_id),
                 "email": data.correo,
                 "nombre_completo": data.correo.split("@")[0],
                 "fecha_registro": datetime.now().isoformat(),
+                "avatar_url": (
+                    res.user.user_metadata.get("avatar_url")
+                    if res.user.user_metadata
+                    else None
+                ),
             },
         }
-
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"[ERROR] Login failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas."
-        )
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Credenciales inválidas.")
 
 
-@router.post(
-    "/verify-otp",
-    response_model=UserAuthResponse,
-    summary="Verificar OTP desde deep link de email",
-)
+@router.post("/verify-otp", response_model=UserAuthResponse)
 async def verify_otp(data: VerifyOTPRequest):
-    """
-    Verifica un token OTP recibido desde un deep link en email.
-
-    - Valida el token OTP con Supabase
-    - Retorna access_token si es válido
-    - Crea la sesión del usuario
-    """
     try:
-        logger.info(f"[DEBUG] Verificando OTP para: {data.email}, type={data.type}")
-
-        # Verificar el OTP con Supabase
         res = supabase.client.auth.verify_otp(
             {
                 "email": data.email,
                 "token": data.token,
-                "type": data.type,  # 'signup' o 'recovery'
+                "type": data.type,
             }
         )
 
         if not res.user or not res.session:
-            logger.error(f"[ERROR] OTP verification failed for {data.email}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token inválido o expirado",
-            )
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token inválido")
 
         user_id = UUID(res.user.id)
-        logger.info(f"[OK] OTP verified for {data.email}, user: {user_id}")
 
         return {
             "access_token": res.session.access_token,
+            "refresh_token": res.session.refresh_token,  # ✅ Devolvemos refresh token
             "token_type": "bearer",
             "user": {
                 "id_usuario": str(user_id),
@@ -252,15 +176,42 @@ async def verify_otp(data: VerifyOTPRequest):
                 "fecha_registro": datetime.now().isoformat(),
             },
         }
-
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"[ERROR] OTP verification failed: {str(e)}")
+        logger.error(f"[ERROR] OTP verification failed: {e}")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Error al verificar token.")
+
+
+# ✅ NUEVO ENDPOINT: Refrescar Token
+@router.post("/refresh-token", response_model=UserAuthResponse)
+async def refresh_token(data: RefreshTokenRequest):
+    """Renueva el access token usando un refresh token válido"""
+    try:
+        res = supabase.client.auth.refresh_session(data.refresh_token)
+
+        if not res.user or not res.session:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Sesión expirada")
+
+        return {
+            "access_token": res.session.access_token,
+            "refresh_token": res.session.refresh_token,
+            "token_type": "bearer",
+            "user": {
+                "id_usuario": str(res.user.id),
+                "email": res.user.email,
+                "nombre_completo": res.user.user_metadata.get(
+                    "full_name", res.user.email.split("@")[0]
+                ),
+                "avatar_url": res.user.user_metadata.get("avatar_url"),
+            },
+        }
+    except Exception as e:
+        logger.error(f"[AUTH] Refresh failed: {e}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Error al verificar el token. Por favor intenta nuevamente.",
+            status.HTTP_401_UNAUTHORIZED, "No se pudo renovar la sesión"
         )
+
+
+# ... (Mantener resto de endpoints: confirm, me, update, forgot-password, etc.)
 
 
 @router.get(
@@ -280,9 +231,9 @@ async def confirm_email(
     1. Supabase envía email con link a este endpoint
     2. Usuario hace click → Llama este endpoint
     3. Este endpoint:
-       - Verifica la sesión con Supabase (token en cookies)
-       - Si es válido → Devuelve HTML con JS que abre la app
-       - Si es inválido → Muestra error amigable
+        - Verifica la sesión con Supabase (token en cookies)
+        - Si es válido → Devuelve HTML con JS que abre la app
+        - Si es inválido → Muestra error amigable
     """
     try:
         logger.info(
