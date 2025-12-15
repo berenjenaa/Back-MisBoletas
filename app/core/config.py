@@ -65,7 +65,8 @@ class Settings(BaseSettings):
 
     MAIL_SUPPORT: str = "soportemisboletas@gmail.com"  # Email donde llegan los tickets
     # === CONFIGURACIÓN DE DEEP LINKS (EMAIL BRIDGES) ===
-    DEEP_LINK_BASE: str = "exp://192.168.88.7:8081"  # Base URL para deep links
+
+    DEEP_LINK_BASE: str = "misboletas://"
     # Ejemplos:
     # - Desarrollo: exp://192.168.88.7:8081
     # - Expo (nube): exp://u8d2n@exp.host (se obtiene después de subir)
