@@ -1,25 +1,30 @@
-# Usamos Python 3.10 como acordamos para arreglar el error de librerías
+# 1. Usamos Python 3.10
 FROM python:3.10-slim
 
-# Directorio de trabajo
+# 2. Directorio de trabajo
 WORKDIR /app
 
-# Variables de entorno para optimizar Python
+# 3. Variables de entorno
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Copiamos requerimientos e instalamos
+# === PARTE NUEVA Y CRÍTICA ===
+# Instalamos "libmagic1" que es necesario para detectar tipos de archivos
+# Usamos apt-get porque es una imagen basada en Debian
+RUN apt-get update && \
+    apt-get install -y libmagic1 && \
+    rm -rf /var/lib/apt/lists/*
+# ==============================
+
+# 4. Copiamos e instalamos dependencias de Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiamos el resto del código
+# 5. Copiamos el resto del código
 COPY . .
 
-# Informamos el puerto
+# 6. Exponemos el puerto
 EXPOSE 8080
 
-# === COMANDO CRÍTICO ===
-# 1. Usamos "sh -c" para leer variables.
-# 2. Forzamos --host 0.0.0.0 (¡Vital!).
-# 3. Usamos el puerto que nos da Google o 8080 por defecto.
+# 7. Comando de arranque
 CMD sh -c "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"
