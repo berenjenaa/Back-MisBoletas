@@ -18,6 +18,7 @@ from app.api.v1 import (
     webhooks,
     faqs,
     bridges,
+    ocr,
 )
 
 # --- Importaciones del Core ---
@@ -218,6 +219,7 @@ app.include_router(product.router, prefix=api_v1_prefix, tags=["Productos"])
 app.include_router(categorias.router, prefix=api_v1_prefix, tags=["Categorías"])
 app.include_router(organizations.router, prefix=api_v1_prefix, tags=["Organizaciones"])
 app.include_router(documento.router, prefix=api_v1_prefix, tags=["Documentos"])
+app.include_router(ocr.router, prefix=api_v1_prefix, tags=["OCR"])
 app.include_router(alerts.router, prefix=api_v1_prefix, tags=["Alertas"])
 app.include_router(tickets.router, prefix=api_v1_prefix, tags=["Tickets"])
 app.include_router(faqs.router, prefix=api_v1_prefix, tags=["FAQs"])

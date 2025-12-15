@@ -1136,12 +1136,14 @@ async def reset_password(data: dict):
     Body:
     {
         "token": "abc123...",
+        "email": "user@example.com",  // Opcional, para validación
         "password": "nueva_contraseña_segura"
     }
     """
     try:
         token = data.get("token")
         new_password = data.get("password")
+        email = data.get("email")  # Opcional, para validación
 
         if not token or not new_password:
             raise HTTPException(
@@ -1149,7 +1151,7 @@ async def reset_password(data: dict):
                 detail="Token y contraseña son requeridos",
             )
 
-        logger.info("[AUTH] Restableciendo contraseña")
+        logger.info(f"[AUTH] Restableciendo contraseña para email: {email}")
 
         # Usar el token para restablecer la contraseña
         response = supabase.client.auth.update_user(
@@ -1158,7 +1160,9 @@ async def reset_password(data: dict):
 
         # Obtener el usuario actualizado
         if response.user:
-            logger.info("[AUTH] Contraseña restablecida exitosamente")
+            logger.info(
+                f"[AUTH] Contraseña restablecida exitosamente para {response.user.email}"
+            )
             return {
                 "access_token": (
                     response.session.access_token if response.session else ""

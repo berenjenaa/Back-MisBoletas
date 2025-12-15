@@ -14,6 +14,7 @@ from . import (
     webhooks,
     faqs,
     bridges,
+    ocr,
 )
 
 __all__ = [
@@ -28,4 +29,5 @@ __all__ = [
     "webhooks",
     "faqs",
     "bridges",
+    "ocr",
 ]

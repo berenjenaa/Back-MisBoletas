@@ -462,7 +462,7 @@ async def delete_product(
 
 
 @router.put(
-    "/{product_id}/restaurar",
+    "/{product_id}/restore",
     status_code=status.HTTP_200_OK,
     summary="Restaurar producto",
 )
