@@ -16,6 +16,10 @@ from datetime import timedelta
 from PIL import Image
 import io
 
+# Importaciones necesarias para el fix de Cloud Run
+import google.auth
+from google.auth.transport import requests as google_requests
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,7 +42,7 @@ class GCSService:
                 credentials = service_account.Credentials.from_service_account_file(
                     creds_data
                 )
-            # Si es JSON string (Render/Producción)
+            # Si es JSON string (Render/Producción manual)
             else:
                 try:
                     creds_dict = json.loads(creds_data)
@@ -54,7 +58,7 @@ class GCSService:
                 credentials=credentials, project=settings.GCS_PROJECT_ID
             )
         else:
-            # Usar credenciales por defecto del entorno
+            # Usar credenciales por defecto del entorno (Cloud Run / Local con gcloud login)
             self.client = storage.Client(project=settings.GCS_PROJECT_ID)
 
         self.bucket = self.client.bucket(settings.GCS_BUCKET_NAME)
@@ -197,22 +201,65 @@ class GCSService:
     def get_signed_url(
         self, blob_name: str, expiration_seconds: Optional[int] = None
     ) -> str:
-        """Genera una URL firmada temporal."""
+        """Genera una URL firmada temporal (Compatible con Cloud Run)."""
         try:
             blob = self.bucket.blob(blob_name)
             if not blob.exists():
                 raise HTTPException(status_code=404, detail="File not found")
 
             expiration = expiration_seconds or settings.GCS_SIGNED_URL_EXPIRATION
+
+            # --- FIX PARA CLOUD RUN ---
+            # Cloud Run usa credenciales sin clave privada local.
+            # Para firmar, debemos pasar el email y token explícitamente,
+            # lo que obliga a la librería a usar la API IAM 'signBlob'.
+            extra_args = {}
+
+            if not settings.GOOGLE_APPLICATION_CREDENTIALS:
+                # Estamos usando identidad por defecto (Cloud Run / Local gcloud)
+                try:
+                    credentials, _ = google.auth.default()
+
+                    # Refrescar credenciales para asegurar que tenemos el token y email
+                    if not credentials.token:
+                        credentials.refresh(google_requests.Request())
+
+                    # Estos parámetros activan la firma remota vía IAM API
+                    if hasattr(credentials, "service_account_email"):
+                        extra_args["service_account_email"] = (
+                            credentials.service_account_email
+                        )
+
+                    if hasattr(credentials, "token"):
+                        extra_args["access_token"] = credentials.token
+
+                    logger.info(
+                        f"[AUTH] Usando firma remota IAM para: {credentials.service_account_email}"
+                    )
+                except Exception as auth_error:
+                    logger.warning(
+                        f"[AUTH] No se pudieron obtener credenciales IAM: {auth_error}"
+                    )
+            # --------------------------
+
             url = blob.generate_signed_url(
-                version="v4", expiration=timedelta(seconds=expiration), method="GET"
+                version="v4",
+                expiration=timedelta(seconds=expiration),
+                method="GET",
+                **extra_args,  # Inyectamos los datos de auth si es necesario
             )
+
             logger.info(f"[OK] Signed URL generated for: {blob_name}")
             return url
         except HTTPException:
             raise
         except Exception as e:
             logger.error(f"[ERROR] Failed to generate signed URL: {e}")
+            # Log detallado para debug en Cloud Run
+            import traceback
+
+            logger.error(traceback.format_exc())
+
             raise HTTPException(
                 status_code=500, detail=f"URL generation error: {str(e)}"
             )
