@@ -1,25 +1,25 @@
-# Usa una imagen base de Python oficial (versión ligera)
+# Usamos Python 3.10 como acordamos para arreglar el error de librerías
 FROM python:3.10-slim
-# Establece el directorio de trabajo dentro del contenedor
+
+# Directorio de trabajo
 WORKDIR /app
 
-# Evita que Python genere archivos .pyc y habilita logs en tiempo real
+# Variables de entorno para optimizar Python
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Copia el archivo de requerimientos primero para aprovechar la caché de Docker
+# Copiamos requerimientos e instalamos
 COPY requirements.txt .
-
-# Instala las dependencias necesarias
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia el resto del código de la aplicación al contenedor
+# Copiamos el resto del código
 COPY . .
 
-# Expone el puerto 8080 (Cloud Run usa este por defecto, pero es informativo)
+# Informamos el puerto
 EXPOSE 8080
 
-# ✅ COMANDO CLAVE PARA CLOUD RUN:
-# Usamos "sh -c" para que el sistema lea la variable de entorno $PORT.
-# Si Cloud Run asigna un puerto (ej. 8080), lo usará. Si no, usará 8080 por defecto.
+# === COMANDO CRÍTICO ===
+# 1. Usamos "sh -c" para leer variables.
+# 2. Forzamos --host 0.0.0.0 (¡Vital!).
+# 3. Usamos el puerto que nos da Google o 8080 por defecto.
 CMD sh -c "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"
