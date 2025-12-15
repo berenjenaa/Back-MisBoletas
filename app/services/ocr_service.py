@@ -9,11 +9,13 @@ from fastapi import UploadFile
 
 logger = logging.getLogger(__name__)
 
+# En app/services/ocr_service.py
+
 
 def parse_receipt_data(text: str) -> dict:
     """
-    Analiza el texto crudo del OCR para extraer datos clave usando Regex avanzados.
-    Intenta llenar: Tienda, Fecha, Total, Marca, Modelo, Garantía.
+    Analiza el texto crudo del OCR para extraer datos clave.
+    Optimizado para formato chileno (CLP) con separadores de miles.
     """
     data = {
         "comercio": None,
@@ -29,55 +31,69 @@ def parse_receipt_data(text: str) -> dict:
 
     text_lower = text.lower()
 
-    # 1. Extraer FECHA (Formatos: DD/MM/AAAA, DD-MM-AAAA, AAAA-MM-DD)
-    # Busca fechas válidas en el texto
+    # 1. Extraer FECHA
     date_pattern = r"(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})|(\d{4}[-/]\d{1,2}[-/]\d{1,2})"
     date_match = re.search(date_pattern, text)
     if date_match:
         data["fecha"] = date_match.group(0)
 
-    # 2. Extraer TOTAL
-    # Busca patrones como: Total $10.000, Total: 10000, evitando códigos de producto muy largos
-    # Estrategia: buscar TODOS los "TOTAL" y tomar el ÚLTIMO (es el más probable que sea el final)
+    # 2. Extraer TOTAL (Lógica mejorada para CLP)
+    # Estrategia: Buscar la palabra "total" y capturar el número asociado limpiando el formato
     lines = text.split("\n")
     total_candidates = []
 
-    for i, line in enumerate(lines):
-        # Busca líneas que contengan "TOTAL" (pero no SUBTOTAL, NETO, etc. como primer token)
-        if re.search(r"(?i)^\s*total\s", line) and not re.search(
-            r"(?i)^\s*(?:neto|subtotal)\s", line
+    for line in lines:
+        line_clean = line.lower().strip()
+        # Verificar si es una línea de Total válido
+        if "total" in line_clean and not any(
+            x in line_clean for x in ["subtotal", "neto", "iva", "descuento"]
         ):
-            # Extrae todos los números de esta línea
-            numbers = re.findall(r"\d+", line)
-            if numbers:
-                # Filtra códigos de producto muy largos (típicamente > 10 dígitos)
-                filtered = [int(n) for n in numbers if len(n) <= 10]
-                if filtered:
-                    # Toma el número más grande de los filtrados (generalmente es el total)
-                    total_candidates.append(max(filtered))
+            # Busca números que puedan tener puntos de miles (ej: 9.080, 10.000)
+            # Regex: Captura digitos, permitiendo puntos entre medio
+            matches = re.findall(r"[\d]+(?:[.]\d+)*", line_clean)
 
-    # Si tenemos candidatos, toma el ÚLTIMO (es el total final, no descuentos intermedios)
+            for match in matches:
+                # Limpieza CLP:
+                # 1. Eliminar puntos de miles (9.080 -> 9080)
+                clean_num = match.replace(".", "")
+
+                # 2. Validación básica de integridad
+                try:
+                    val = int(clean_num)
+                    # Filtro de rango lógico para una boleta (ej: $100 a $50M)
+                    # Esto descarta códigos de barras o números pequeños como cantidades (1, 2)
+                    if 100 <= val <= 50000000:
+                        total_candidates.append(val)
+                except ValueError:
+                    continue
+
+    # Si encontramos candidatos en las líneas, usamos el último (usualmente el Total Final)
     if total_candidates:
         data["total"] = total_candidates[-1]
 
-    # Si no encuentra por método principal, intenta patrón regex más flexible
+    # Fallback: Si no se encontró en líneas, buscar patrón multilínea o formato con signo $
     if not data["total"]:
-        # Busca específicamente la línea "TOTAL" seguida de un número
-        total_pattern = r"(?i)^\s*total\s+(?:\$)?(?:CHI)?[\s]*(\d+(?:[.,]\d{2})?)"
-        total_matches = list(re.finditer(total_pattern, text, re.MULTILINE))
-        if total_matches:
-            # Toma el ÚLTIMO match (es el total final)
-            last_match = total_matches[-1]
-            raw_amount = last_match.group(1).replace(".", "").replace(",", "")
+        # Busca "Total" seguido de espacio, signo opcional y número con formato chileno
+        # Captura: 9.080, 10000, 1.200.500
+        fallback_pattern = r"(?i)total\s+(?:\$|CLP)?\s*([\d]+(?:[.]\d+)*)"
+        matches = re.finditer(fallback_pattern, text)
+
+        fallback_candidates = []
+        for m in matches:
+            raw = m.group(1)
+            clean = raw.replace(".", "")
             try:
-                amount = int(raw_amount)
-                # Solo aceptar si está en rango razonable (0 a 50 millones CLP aprox)
-                if 0 < amount < 50000000:
-                    data["total"] = amount
+                val = int(clean)
+                if 100 <= val <= 50000000:
+                    fallback_candidates.append(val)
             except:
                 pass
 
-    # 3. Extraer COMERCIO (Lista de tiendas comunes en Chile)
+        if fallback_candidates:
+            data["total"] = fallback_candidates[-1]
+
+    # ... (Mantener lógica de Comercio, Marca, Modelo y Garantía igual que antes) ...
+    # 3. Extraer COMERCIO
     tiendas_comunes = [
         "LIDER",
         "JUMBO",
@@ -108,11 +124,9 @@ def parse_receipt_data(text: str) -> dict:
 
     # Si no encuentra tienda conocida, intenta buscar en las primeras líneas
     if not data["comercio"]:
-        lines = text.split("\n")
-        for line in lines[:5]:  # Mira las primeras 5 líneas
+        for line in lines[:5]:
             clean_line = line.strip()
             if len(clean_line) > 3 and not any(char.isdigit() for char in clean_line):
-                # Evitar líneas que parezcan direcciones o códigos
                 if (
                     "rut" not in clean_line.lower()
                     and "boleta" not in clean_line.lower()
@@ -120,7 +134,7 @@ def parse_receipt_data(text: str) -> dict:
                     data["comercio"] = clean_line
                     break
 
-    # 4. Extraer MARCA (Lista de marcas comunes)
+    # 4. Extraer MARCA (Incluyendo las nuevas que agregaste)
     marcas_comunes = [
         "SAMSUNG",
         "LG",
@@ -149,6 +163,13 @@ def parse_receipt_data(text: str) -> dict:
         "XIAOMI",
         "MOTOROLA",
         "HUAWEI",
+        "SYBILLA",
+        "BASEMENT",
+        "AMERICANINO",
+        "DOO AUSTRALIA",
+        "MANGATA",
+        "INDEX",
+        "CORONA",
         "TRICOT",
     ]
     for marca in marcas_comunes:
@@ -156,26 +177,24 @@ def parse_receipt_data(text: str) -> dict:
             data["marca"] = marca
             break
 
-    # 5. Extraer MODELO (Busca palabras clave como 'Mod', 'Modelo' o SKU)
-    # Patrón: "Modelo: XYZ-123"
+    # 5. Extraer MODELO
     modelo_pattern = r"(?i)(?:modelo|mod\.|sku)[\s:.]*([A-Za-z0-9\-\/]+)"
     modelo_match = re.search(modelo_pattern, text)
     if modelo_match:
         val = modelo_match.group(1)
-        if len(val) > 2:  # Evitar falsos positivos cortos
+        if len(val) > 2:
             data["modelo"] = val
 
-    # 6. Extraer GARANTÍA (Busca "Garantía X meses" o "Garantía X años")
+    # 6. Extraer GARANTÍA
     garantia_pattern = r"(?i)garant[ií]a.*?(\d+)\s*(mes|año|dia)"
     garantia_match = re.search(garantia_pattern, text)
     if garantia_match:
         cantidad = int(garantia_match.group(1))
         unidad = garantia_match.group(2).lower()
         if "año" in unidad:
-            data["garantia"] = cantidad * 12  # Convertir a meses
+            data["garantia"] = cantidad * 12
         elif "mes" in unidad:
             data["garantia"] = cantidad
-        # Si son días, lo ignoramos o aproximamos a 1 mes si es > 20 días
 
     return data
 
