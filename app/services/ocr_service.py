@@ -5,6 +5,7 @@ from app.core.config import settings
 from fastapi import HTTPException
 import re
 from app.db.supabase import supabase_admin
+from fastapi import UploadFile
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +149,7 @@ def parse_receipt_data(text: str) -> dict:
         "XIAOMI",
         "MOTOROLA",
         "HUAWEI",
+        "TRICOT",
     ]
     for marca in marcas_comunes:
         if marca.lower() in text_lower:
@@ -275,3 +277,57 @@ async def background_process_ocr(
         supabase_admin.get_table("documentos").update(
             {"estado_ocr": "error", "error_ocr": error_msg}
         ).eq("id_documento", documento_id).execute()
+
+
+async def process_boleta_image(file: UploadFile, user_id: str) -> dict:
+    """
+    Procesa un documento subido directamente (en memoria) usando Document AI.
+    """
+    project_id = settings.DOCUMENTAI_PROJECT_ID
+    location = settings.DOCUMENTAI_LOCATION
+    processor_id = settings.DOCUMENTAI_PROCESSOR_ID
+
+    if not all([project_id, location, processor_id]):
+        raise ValueError("Faltan configuraciones de Document AI")
+
+    # Configurar cliente
+    opts = ClientOptions(api_endpoint=f"{location}-documentai.googleapis.com")
+    client = documentai.DocumentProcessorServiceClient(client_options=opts)
+    name = client.processor_path(project_id, location, processor_id)
+
+    logger.info(
+        f"[INFO] Processing raw file (User: {user_id}). Filename: {file.filename}"
+    )
+
+    # Leer contenido
+    content = await file.read()
+    await file.seek(0)  # Resetear cursor
+
+    # Crear RawDocument (para archivos directos, NO GCS)
+    raw_document = documentai.RawDocument(
+        content=content, mime_type=file.content_type or "image/jpeg"  # Fallback común
+    )
+
+    request = documentai.ProcessRequest(
+        name=name,
+        raw_document=raw_document,
+        skip_human_review=True,
+    )
+
+    try:
+        result = client.process_document(request=request)
+        document = result.document
+        full_text = document.text
+
+        # Parsear los datos
+        parsed_data = parse_receipt_data(full_text)
+
+        return {
+            "texto_completo": full_text,
+            "parsed_data": parsed_data,
+            "raw_entities": [],
+        }
+
+    except Exception as e:
+        logger.error(f"[ERROR] Document AI API error (Raw): {e}")
+        raise e

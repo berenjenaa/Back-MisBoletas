@@ -21,15 +21,6 @@ async def on_documento_created(request: Request):
     """
     Webhook de Supabase se dispara cuando:
     - Se inserta un nuevo registro en tabla "documentos"
-
-    Supabase envía:
-    {
-        "type": "INSERT",
-        "record": { ... todo el documento ... },
-        "schema": "public",
-        "table": "documentos",
-        "created_at": "2025-12-03T15:30:00Z"
-    }
     """
     try:
         # 1. Obtener payload
@@ -45,7 +36,11 @@ async def on_documento_created(request: Request):
         documento = payload.get("record", {})
         id_documento = documento.get("id_documento")
         blob_name = documento.get("blob_name")
-        gcs_uri = documento.get("url_gcs")
+        # El webhook recibe la URL pública, pero necesitamos reconstruir la URI gs://
+        # gcs_uri_public = documento.get("url_gcs")
+        id_usuario = documento.get("id_usuario")
+        # IMPORTANTE: Necesitamos el mime_type (content_type)
+        mime_type = documento.get("content_type", "application/pdf")
 
         if not id_documento or not blob_name:
             logger.error(f"[ERROR] Webhook incompleto: falta id_documento o blob_name")
@@ -53,12 +48,10 @@ async def on_documento_created(request: Request):
 
         logger.info(f"[OK] Webhook recibido para documento: {id_documento}")
 
-        # 3. Extraer id_usuario
-        id_usuario = documento.get("id_usuario")
-
         # 4. Iniciar OCR en background (sin bloquear respuesta)
+        # PASAMOS TODOS LOS DATOS NECESARIOS
         asyncio.create_task(
-            procesar_documento_ocr(id_documento, blob_name, gcs_uri, id_usuario)
+            procesar_documento_ocr(id_documento, blob_name, mime_type, id_usuario)
         )
 
         # 4. Responder inmediatamente
@@ -70,16 +63,14 @@ async def on_documento_created(request: Request):
 
     except Exception as e:
         logger.error(f"[ERROR] Webhook error: {e}", exc_info=True)
-        # Retornar 200 igual para que Supabase no lo marque como error
         return {"received": True, "error": str(e)}
 
 
 async def procesar_documento_ocr(
-    id_documento: str, blob_name: str, gcs_uri: str, id_usuario: str = None
+    id_documento: str, blob_name: str, mime_type: str, id_usuario: str = None
 ):
     """
     Procesa OCR del documento en background.
-    Se ejecuta sin bloquear la respuesta HTTP.
     """
     try:
         logger.info(f"[INFO] Iniciando OCR para: {id_documento}")
@@ -89,23 +80,37 @@ async def procesar_documento_ocr(
             "id_documento", str(id_documento)
         ).execute()
 
-        logger.info(f"[OK] Marcado como procesando: {id_documento}")
+        # 2. Construir la URI gs:// correcta
+        # Document AI necesita formato: gs://bucket-name/path/to/file
+        gcs_uri = f"gs://{settings.GCS_BUCKET_NAME}/{blob_name}"
 
-        # 2. Ejecutar OCR (aquí es donde tarda 30-120s)
-        resultado_ocr = await process_boleta_from_gcs_uri(gcs_uri)
+        # 3. Ejecutar OCR con los argumentos correctos
+        resultado_ocr = await process_boleta_from_gcs_uri(
+            gcs_uri=gcs_uri, mime_type=mime_type, user_id=str(id_usuario)
+        )
 
         logger.info(f"[OK] OCR completado para: {id_documento}")
 
-        # 3. Actualizar documento con resultados
-        supabase_admin.get_table("documentos").update(
-            {
-                "estado_ocr": "completado",
-                "metadata_ocr": resultado_ocr.get("full_text"),
-                "numero_boleta": resultado_ocr.get("numero_boleta"),
-                "fecha_emision": resultado_ocr.get("fecha_emision"),
-                "error_ocr": None,
-            }
-        ).eq("id_documento", str(id_documento)).execute()
+        # 4. Actualizar documento con resultados
+        # Nota: Adaptamos la respuesta para que coincida con las columnas de tu BD
+        datos_actualizar = {
+            "estado_ocr": "completado",
+            "metadata_ocr": resultado_ocr,  # Guardamos todo el objeto resultado
+            "numero_boleta": resultado_ocr.get("parsed_data", {}).get(
+                "numero"
+            ),  # Si existe
+            "fecha_emision": resultado_ocr.get("parsed_data", {}).get(
+                "fecha"
+            ),  # Si existe
+            "error_ocr": None,
+        }
+
+        # Limpiamos claves con valor None para no romper el update
+        datos_limpios = {k: v for k, v in datos_actualizar.items() if v is not None}
+
+        supabase_admin.get_table("documentos").update(datos_limpios).eq(
+            "id_documento", str(id_documento)
+        ).execute()
 
         logger.info(f"[SUCCESS] Documento procesado: {id_documento}")
 
