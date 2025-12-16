@@ -3,6 +3,7 @@ from typing import List
 from uuid import UUID
 from datetime import datetime, timezone
 import logging
+from collections import Counter  # ✅ Nueva importación para contar rápido
 
 from app.core.dependencies import get_current_user_id, get_active_user_id
 from app.db.supabase import supabase_admin
@@ -18,9 +19,12 @@ logger = logging.getLogger(__name__)
 
 @router.get("", response_model=List[CategoriaRead])
 async def get_categorias(user_id: UUID = Depends(get_current_user_id)):
-    """Obtiene categorías con el conteo de productos."""
+    """
+    Obtiene categorías con el conteo de productos.
+    ⚡️ OPTIMIZADO: Reduce N+1 consultas a solo 2 consultas.
+    """
     try:
-        # 1. Obtener categorías
+        # 1. Obtener todas las categorías del usuario
         response = (
             supabase_admin.get_table("categorias")
             .select("*")
@@ -31,19 +35,35 @@ async def get_categorias(user_id: UUID = Depends(get_current_user_id)):
 
         categorias = response.data or []
 
-        # 2. Calcular conteo para cada una
-        for cat in categorias:
-            try:
-                # Contamos cuántas veces aparece el id_categoria en la tabla intermedia
-                count_res = (
-                    supabase_admin.get_table("producto_categorias")
-                    .select("count", count="exact")
-                    .eq("id_categoria", str(cat["id_categoria"]))
-                    .execute()
-                )
+        if not categorias:
+            return []
 
-                cat["numero_productos"] = count_res.count or 0
-            except Exception:
+        # 2. OPTIMIZACIÓN: Traer todas las relaciones de una sola vez
+        # Extraemos los IDs de las categorías encontradas
+        cat_ids = [c["id_categoria"] for c in categorias]
+
+        if cat_ids:
+            # Consultamos la tabla intermedia filtrando por TODOS los IDs a la vez
+            # Solo traemos la columna 'id_categoria' para que sea ligero
+            counts_response = (
+                supabase_admin.get_table("producto_categorias")
+                .select("id_categoria")
+                .in_("id_categoria", cat_ids)
+                .execute()
+            )
+
+            raw_counts = counts_response.data or []
+
+            # 3. Contar en memoria (Python es muy rápido para esto)
+            # Counter crea un diccionario: {'uuid-cat-1': 5, 'uuid-cat-2': 3...}
+            conteo_map = Counter([item["id_categoria"] for item in raw_counts])
+
+            # 4. Asignar el conteo a cada categoría
+            for cat in categorias:
+                cat["numero_productos"] = conteo_map.get(cat["id_categoria"], 0)
+        else:
+            # Si no hay categorías, no hay nada que contar
+            for cat in categorias:
                 cat["numero_productos"] = 0
 
         return [CategoriaRead(**c) for c in categorias]
@@ -87,7 +107,8 @@ async def get_categoria(
         )
 
 
-@router.post("/", response_model=CategoriaRead, status_code=status.HTTP_201_CREATED)
+# ✅ SIN BARRA AL FINAL (Standard REST)
+@router.post("", response_model=CategoriaRead, status_code=status.HTTP_201_CREATED)
 async def create_categoria(
     categoria: CategoriaCreate,
     user_id: UUID = Depends(get_active_user_id),
@@ -118,7 +139,6 @@ async def create_categoria(
     except Exception as e:
         error_str = str(e).lower()
         logger.error(f"[ERROR] Failed to create categoria: {e}", exc_info=True)
-        # Si es error de RLS, retornar error apropiado
         if "42501" in error_str or "permission denied" in error_str:
             logger.warning(f"[WARNING] RLS blocked categoria creation")
             raise HTTPException(
@@ -173,7 +193,6 @@ async def delete_categoria(
 ):
     """
     Eliminar una categoría (Soft Delete).
-    Marca con fecha_eliminacion en lugar de borrar físicamente.
     """
     try:
         response = (
