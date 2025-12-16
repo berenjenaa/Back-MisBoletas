@@ -4,6 +4,7 @@ from google.cloud import documentai
 from app.core.config import settings
 from fastapi import HTTPException, UploadFile
 import re
+from app.db.supabase import supabase_admin  # ✅ Necesario para background_process
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,6 @@ def parse_receipt_data(text: str) -> dict:
     lines = text.split("\n")
 
     # --- 1. NUEVA LÓGICA: Extracción de Ítems ---
-    # Palabras que indican que la línea NO es un producto
     palabras_exclusion = [
         "total",
         "subtotal",
@@ -81,13 +81,10 @@ def parse_receipt_data(text: str) -> dict:
         line_clean = line.strip()
         line_lower = line_clean.lower()
 
-        # Filtros básicos: longitud mínima y no ser palabra clave de estructura
         if len(line_clean) < 5 or any(ex in line_lower for ex in palabras_exclusion):
             continue
 
-        # Regex para buscar precio al final de la línea (formato chileno 10.990 o 10990)
-        # Busca: texto... espacio... precio (opcionalmente con signo $)
-        # El precio debe estar al final o casi al final de la línea
+        # Regex para buscar precio al final de la línea
         match_precio = re.search(r"\s+\$?\s*([\d]+(?:\.[\d]{3})*)", line_clean)
 
         if match_precio:
@@ -95,15 +92,11 @@ def parse_receipt_data(text: str) -> dict:
                 precio_str = match_precio.group(1).replace(".", "")
                 precio_val = int(precio_str)
 
-                # Rango de precio "lógico" para un producto unitario (ej: > $500 y < $5M)
-                # Esto ayuda a filtrar códigos numéricos o cantidades pequeñas
+                # Rango de precio "lógico"
                 if 500 <= precio_val <= 5000000:
-                    # Extraer descripción (todo lo que está antes del precio)
                     descripcion = line_clean[: match_precio.start()].strip()
 
-                    # Validar que la descripción tenga letras (no sea solo códigos) y longitud decente
                     if any(c.isalpha() for c in descripcion) and len(descripcion) > 3:
-                        # Limpiar caracteres raros del inicio (ej: "1 . LECHE")
                         descripcion = re.sub(r"^[\d\W]+\s+", "", descripcion)
                         posibles_items.append(
                             f"• {descripcion} (${match_precio.group(1)})"
@@ -111,7 +104,6 @@ def parse_receipt_data(text: str) -> dict:
             except ValueError:
                 continue
 
-    # Guardar resultados de ítems
     data["items_detectados"] = posibles_items
     data["cantidad_productos"] = len(posibles_items)
     if posibles_items:
@@ -123,11 +115,10 @@ def parse_receipt_data(text: str) -> dict:
     if date_match:
         data["fecha"] = date_match.group(0)
 
-    # --- 3. Extraer TOTAL (Lógica mejorada) ---
+    # --- 3. Extraer TOTAL ---
     total_candidates = []
     for line in lines:
         line_clean = line.lower().strip()
-        # Buscar líneas que digan "total" explícitamente
         if "total" in line_clean and not any(
             x in line_clean for x in ["subtotal", "neto", "iva", "descuento"]
         ):
@@ -136,7 +127,6 @@ def parse_receipt_data(text: str) -> dict:
                 clean_num = match.replace(".", "")
                 try:
                     val = int(clean_num)
-                    # Filtro de rango lógico para un TOTAL de boleta
                     if 100 <= val <= 50000000:
                         total_candidates.append(val)
                 except ValueError:
@@ -145,7 +135,6 @@ def parse_receipt_data(text: str) -> dict:
     if total_candidates:
         data["total"] = total_candidates[-1]
 
-    # Fallback para Total: buscar patrón si no se halló en líneas
     if not data["total"]:
         fallback_pattern = r"(?i)total\s+(?:\$|CLP)?\s*([\d]+(?:[.]\d+)*)"
         matches = re.finditer(fallback_pattern, text)
@@ -309,6 +298,46 @@ async def process_boleta_from_gcs_uri(
     except Exception as e:
         logger.error(f"[ERROR] Document AI API error: {e}")
         raise e
+
+
+# ✅ FUNCIÓN RESTAURADA (Causa del error)
+async def background_process_ocr(
+    documento_id: str, gcs_uri: str, mime_type: str, user_id: str
+):
+    """
+    Tarea en segundo plano que coordina el OCR y actualiza Supabase.
+    """
+    logger.info(f"[BACKGROUND] Starting OCR for doc {documento_id}, MIME: {mime_type}")
+
+    try:
+        # 1. Llamar al servicio de Google
+        ocr_result = await process_boleta_from_gcs_uri(
+            gcs_uri=gcs_uri, mime_type=mime_type, user_id=user_id
+        )
+
+        # 2. Actualizar documento en Supabase con éxito
+        supabase_admin.get_table("documentos").update(
+            {
+                "estado_ocr": "completado",
+                "metadata_ocr": ocr_result,
+                "error_ocr": None,
+            }
+        ).eq("id_documento", documento_id).execute()
+
+        logger.info(
+            f"[BACKGROUND] OCR completed for {documento_id}. Data: {ocr_result['parsed_data']}"
+        )
+
+    except Exception as e:
+        error_msg = f"500: OCR external error: {str(e)}"
+        logger.error(
+            f"[BACKGROUND] OCR failed for document {documento_id}: {error_msg}"
+        )
+
+        # 3. Actualizar error en Supabase
+        supabase_admin.get_table("documentos").update(
+            {"estado_ocr": "error", "error_ocr": error_msg}
+        ).eq("id_documento", documento_id).execute()
 
 
 async def process_boleta_image(file: UploadFile, user_id: str) -> dict:
