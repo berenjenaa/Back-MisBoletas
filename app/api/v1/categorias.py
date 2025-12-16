@@ -108,7 +108,7 @@ async def get_categoria(
 
 
 # ✅ SIN BARRA AL FINAL (Standard REST)
-@router.post("", response_model=CategoriaRead, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=CategoriaRead, status_code=status.HTTP_201_CREATED)
 async def create_categoria(
     categoria: CategoriaCreate,
     user_id: UUID = Depends(get_active_user_id),
