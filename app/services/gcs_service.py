@@ -16,7 +16,7 @@ from datetime import timedelta
 from PIL import Image
 import io
 
-# ✅ NUEVAS IMPORTACIONES NECESARIAS
+# ✅ IMPORTACIONES PARA FIRMA CLOUD RUN
 import google.auth
 from google.auth.transport import requests as google_requests
 
@@ -58,25 +58,22 @@ class GCSService:
                 credentials=credentials, project=settings.GCS_PROJECT_ID
             )
         else:
-            # Usar credenciales por defecto del entorno
+            # Usar credenciales por defecto del entorno (Cloud Run)
             self.client = storage.Client(project=settings.GCS_PROJECT_ID)
 
         self.bucket = self.client.bucket(settings.GCS_BUCKET_NAME)
 
     def _validate_file(self, file: UploadFile) -> None:
         """Valida el archivo usando detección MIME con python-magic."""
-        # Whitelist de MIME types permitidos
         allowed_mimetypes = {"image/jpeg", "image/png", "application/pdf"}
 
-        # Leer primeros 2048 bytes para detección MIME
         file_header = file.file.read(2048)
-        file.file.seek(0)  # Resetear para no romper la subida
+        file.file.seek(0)
 
         if not file_header:
             raise HTTPException(status_code=400, detail="Archivo vacío no permitido")
 
         try:
-            # Detectar MIME type real usando python-magic
             mime = magic.Magic(mime=True)
             mime_type = mime.from_buffer(file_header)
 
@@ -91,7 +88,6 @@ class GCSService:
                 status_code=400, detail="No se pudo validar el tipo de archivo"
             )
 
-        # Validar tamaño
         file.file.seek(0, 2)
         file_size = file.file.tell()
         file.file.seek(0)
@@ -104,50 +100,31 @@ class GCSService:
             )
 
     def _generate_blob_name(self, user_id: str, product_id: str, filename: str) -> str:
-        """Genera un nombre único para el blob en GCS."""
         unique_id = str(uuid.uuid4())[:8]
         safe_filename = "".join(
             c for c in filename if c.isalnum() or c in ("-", "_", ".")
         )
-        blob_name = f"user_{user_id}/product_{product_id}/{unique_id}_{safe_filename}"
-        return blob_name
+        return f"user_{user_id}/product_{product_id}/{unique_id}_{safe_filename}"
 
     async def upload_file(
         self, file: UploadFile, user_id: str, product_id: str
     ) -> dict:
-        """Sube un archivo a Google Cloud Storage con compresión si es imagen."""
         try:
             self._validate_file(file)
             file_content = await file.read()
             file.file.seek(0)
 
-            # ✅ COMPRIME SI ES IMAGEN
             if file.content_type and file.content_type.startswith("image/"):
-                logger.info(f"Comprimiendo imagen {file.filename}...")
                 try:
                     img = Image.open(io.BytesIO(file_content))
-
-                    # Redimensiona si es muy grande
                     if img.size[0] > 2048 or img.size[1] > 2048:
                         img.thumbnail((2048, 2048), Image.Resampling.LANCZOS)
-
-                    # Convierte a JPEG y comprime (quality=85)
                     buffer = io.BytesIO()
                     img.save(buffer, format="JPEG", quality=85, optimize=True)
                     file_content = buffer.getvalue()
                     file.content_type = "image/jpeg"
-
-                    original_size = len(await file.read())
-                    file.file.seek(0)
-                    compressed_size = len(file_content)
-                    ratio = 100 - (compressed_size * 100 // original_size)
-                    logger.info(
-                        f"Compresión: {original_size} → {compressed_size} bytes (-{ratio}%)"
-                    )
                 except Exception as e:
-                    logger.warning(
-                        f"No se pudo comprimir imagen: {e}. Usando original."
-                    )
+                    logger.warning(f"No se pudo comprimir imagen: {e}")
 
             blob_name = self._generate_blob_name(user_id, product_id, file.filename)
             blob = self.bucket.blob(blob_name)
@@ -160,18 +137,13 @@ class GCSService:
                 f"https://storage.googleapis.com/{settings.GCS_BUCKET_NAME}/{blob_name}"
             )
             gcs_uri = f"gs://{settings.GCS_BUCKET_NAME}/{blob_name}"
-            file_size = len(file_content)
-
-            logger.info(
-                f"[OK] File uploaded to GCS. Blob: {blob_name}, Size: {file_size} bytes"
-            )
 
             return {
                 "blob_name": blob_name,
                 "public_url": public_url,
                 "gcs_uri": gcs_uri,
                 "content_type": file.content_type,
-                "size_bytes": file_size,
+                "size_bytes": len(file_content),
                 "filename": file.filename,
             }
         except HTTPException:
@@ -181,15 +153,12 @@ class GCSService:
             raise HTTPException(status_code=500, detail=f"File upload error: {str(e)}")
 
     def delete_file(self, blob_name: str) -> bool:
-        """Elimina un archivo de Google Cloud Storage."""
         try:
             blob = self.bucket.blob(blob_name)
             if blob.exists():
                 blob.delete()
-                logger.info(f"[OK] File deleted from GCS: {blob_name}")
                 return True
-            else:
-                raise HTTPException(status_code=404, detail="File not found")
+            raise HTTPException(status_code=404, detail="File not found")
         except HTTPException:
             raise
         except Exception as e:
@@ -201,31 +170,31 @@ class GCSService:
     def get_signed_url(
         self, blob_name: str, expiration_seconds: Optional[int] = None
     ) -> str:
-        """Genera una URL firmada temporal (FIXED PARA CLOUD RUN)."""
+        """Genera una URL firmada temporal (FIX para Cloud Run)."""
         try:
             blob = self.bucket.blob(blob_name)
-            # Nota: blob.exists() puede ser lento, en producción a veces se omite si confías en el ID
+
+            # Nota: blob.exists() es una llamada de red extra.
+            # Si confías en que el blob existe, podrías comentarlo para más velocidad.
             if not blob.exists():
                 raise HTTPException(status_code=404, detail="File not found")
 
             expiration = expiration_seconds or settings.GCS_SIGNED_URL_EXPIRATION
 
-            # ✅ LÓGICA ESPECIAL PARA CLOUD RUN (Identity-based signing)
-            # Si no hay credenciales locales, usamos la identidad del servicio
+            # ✅ LÓGICA ESPECIAL PARA CLOUD RUN (Firma remota IAM)
             signing_args = {}
 
+            # Si NO hay archivo de credenciales local, asumimos Cloud Run/Environment Identity
             if not settings.GOOGLE_APPLICATION_CREDENTIALS:
                 try:
                     # Obtener credenciales por defecto (la identidad de Cloud Run)
                     credentials, _ = google.auth.default()
 
                     # Refrescar para asegurar que tenemos el token y el email
-                    # (Esto es necesario porque a veces vienen "lazy" y vacíos)
                     if not credentials.token:
                         credentials.refresh(google_requests.Request())
 
-                    # Inyectar credenciales explícitas
-                    # Al pasar service_account_email, la librería sabe que debe usar la API de IAM
+                    # Inyectar credenciales explícitas para que la librería use la API de IAM
                     if hasattr(credentials, "service_account_email"):
                         signing_args["service_account_email"] = (
                             credentials.service_account_email
@@ -234,20 +203,19 @@ class GCSService:
                         signing_args["access_token"] = credentials.token
 
                     logger.info(
-                        f"[AUTH] Firmando URL con identidad: {credentials.service_account_email}"
+                        f"[AUTH] Firmando URL con identidad: {getattr(credentials, 'service_account_email', 'Desconocido')}"
                     )
 
                 except Exception as auth_error:
                     logger.warning(
-                        f"[AUTH] No se pudo obtener identidad de Cloud Run: {auth_error}"
+                        f"[AUTH] Error obteniendo identidad de Cloud Run: {auth_error}"
                     )
-                    # Intentamos continuar, tal vez falle, pero el log ayuda
 
             url = blob.generate_signed_url(
                 version="v4",
                 expiration=timedelta(seconds=expiration),
                 method="GET",
-                **signing_args,  # ✅ Pasamos los argumentos de firma
+                **signing_args,  # Pasamos los argumentos de firma
             )
 
             logger.info(f"[OK] Signed URL generated for: {blob_name}")
@@ -261,7 +229,6 @@ class GCSService:
             )
 
     def file_exists(self, blob_name: str) -> bool:
-        """Verifica si un archivo existe en GCS."""
         try:
             blob = self.bucket.blob(blob_name)
             return blob.exists()
@@ -270,7 +237,6 @@ class GCSService:
 
 
 def get_gcs_service() -> Optional[GCSService]:
-    """Obtiene una instancia del servicio de GCS."""
     if not settings.gcs_enabled:
         return None
     return GCSService()
