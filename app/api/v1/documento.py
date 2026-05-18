@@ -201,6 +201,7 @@ async def get_documento(
             supabase_admin.get_table("documentos")
             .select("*")
             .eq("id_documento", str(documento_id))
+            .eq("id_usuario", str(user_id))
             .single()
             .execute()
         )
@@ -225,6 +226,7 @@ async def get_signed_url(
             supabase_admin.get_table("documentos")
             .select("url_gcs, blob_name")
             .eq("id_documento", str(documento_id))
+            .eq("id_usuario", str(user_id))
             .single()
             .execute()
         )
@@ -347,6 +349,7 @@ async def delete_documento(
             supabase_admin.get_table("documentos")
             .select("*")
             .eq("id_documento", str(documento_id))
+            .eq("id_usuario", str(user_id))
             .single()
             .execute()
         )
@@ -355,7 +358,7 @@ async def delete_documento(
 
         supabase_admin.get_table("documentos").update(
             {"fecha_eliminacion": datetime.now(timezone.utc).isoformat()}
-        ).eq("id_documento", str(documento_id)).execute()
+        ).eq("id_documento", str(documento_id)).eq("id_usuario", str(user_id)).execute()
 
         await register_deletion_history("documentos", documento_id, doc.data, user_id)
 

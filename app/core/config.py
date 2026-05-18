@@ -31,9 +31,9 @@ class Settings(BaseSettings):
     JWT_EXPIRE_MINUTES: int = 30  # Minutos de expiración del token
 
     # === CONFIGURACIÓN DE LA APP ===
-    DEBUG: bool = True  # Modo debug para desarrollo
+    DEBUG: bool = False  # Modo debug para desarrollo (desactivado por seguridad)
     API_PREFIX: str = "/api"  # Prefijo para todas las rutas
-    ALLOW_ORIGIN: str = "*"  # Orígenes permitidos para CORS
+    ALLOW_ORIGIN: str = ""  # Orígenes permitidos para CORS (se debe inyectar vía .env)
     PORT: int = 8080  # Puerto por defecto (Cloud Run estándar)
 
     # === CONFIGURACIÓN DE GOOGLE CLOUD STORAGE ===
