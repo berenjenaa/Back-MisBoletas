@@ -31,14 +31,14 @@ class SupabaseClient:
         return cls._instance
 
     def _initialize(self) -> None:
-        """Inicializar el cliente de Supabase con SERVICE_ROLE_KEY (admin)."""
+        """Inicializar el cliente de Supabase con anon key."""
         if self._client is None:
             try:
                 self._client = create_client(
                     supabase_url=settings.SUPABASE_URL,
-                    supabase_key=settings.SUPABASE_SERVICE_ROLE_KEY,
+                    supabase_key=settings.SUPABASE_KEY,
                 )
-                print("[OK] Supabase admin client initialized successfully")
+                print("[OK] Supabase anon client initialized successfully")
             except Exception as e:
                 print(f"[ERROR] Error initializing Supabase: {e}")
                 raise
