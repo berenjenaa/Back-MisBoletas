@@ -1,169 +1,213 @@
-"""
-Endpoints de API para gestión de categorías.
-Permite CRUD completo de categorías personalizadas por usuario.
-"""
-
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
 from typing import List
+from uuid import UUID
+from datetime import datetime, timezone
+import logging
+from collections import Counter  # ✅ Nueva importación para contar rápido
 
-from app.api import dependencies
-from app.crud import categorias as crud_categoria
+from app.core.dependencies import get_current_user_id, get_active_user_id
+from app.db.supabase import supabase_admin
 from app.schemas.categorias import (
-    Categoria, 
-    CategoriaCreate, 
-    CategoriaUpdate,
-    CategoriaWithProducts
+    CategoriaBase,
+    CategoriaCreate,
+    CategoriaRead,
 )
-from app.models.user import Usuario
-from app.schemas.user import UserRead
 
-router = APIRouter()
+router = APIRouter(prefix="/categorias")
+logger = logging.getLogger(__name__)
 
 
-@router.get("/categorias/", response_model=List[CategoriaWithProducts])
-def read_categorias(
-    skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(dependencies.get_db),
-    current_user: UserRead = Depends(dependencies.get_current_user)
-):
+@router.get("", response_model=List[CategoriaRead])
+async def get_categorias(user_id: UUID = Depends(get_current_user_id)):
     """
-    Obtener todas las categorías del usuario con conteo de productos.
+    Obtiene categorías con el conteo de productos.
+    ⚡️ OPTIMIZADO: Reduce N+1 consultas a solo 2 consultas.
     """
-    categorias = crud_categoria.get_categorias_with_product_count(
-        db, 
-        usuario_id=current_user.idUsuario
-    )
-    return categorias
-
-
-@router.get("/categorias/{categoria_id}", response_model=Categoria)
-def read_categoria(
-    categoria_id: int,
-    db: Session = Depends(dependencies.get_db),
-    current_user: UserRead = Depends(dependencies.get_current_user)
-):
-    """
-    Obtener una categoría específica por ID.
-    """
-    categoria = crud_categoria.get_categoria(
-        db, 
-        categoria_id=categoria_id, 
-        usuario_id=current_user.idUsuario
-    )
-    if not categoria:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Categoría no encontrada"
+    try:
+        # 1. Obtener todas las categorías del usuario
+        response = (
+            supabase_admin.get_table("categorias")
+            .select("*")
+            .eq("id_usuario", str(user_id))
+            .is_("fecha_eliminacion", "null")
+            .execute()
         )
-    return categoria
+
+        categorias = response.data or []
+
+        if not categorias:
+            return []
+
+        # 2. OPTIMIZACIÓN: Traer todas las relaciones de una sola vez
+        # Extraemos los IDs de las categorías encontradas
+        cat_ids = [c["id_categoria"] for c in categorias]
+
+        if cat_ids:
+            # Consultamos la tabla intermedia filtrando por TODOS los IDs a la vez
+            # Solo traemos la columna 'id_categoria' para que sea ligero
+            counts_response = (
+                supabase_admin.get_table("producto_categorias")
+                .select("id_categoria")
+                .in_("id_categoria", cat_ids)
+                .execute()
+            )
+
+            raw_counts = counts_response.data or []
+
+            # 3. Contar en memoria (Python es muy rápido para esto)
+            # Counter crea un diccionario: {'uuid-cat-1': 5, 'uuid-cat-2': 3...}
+            conteo_map = Counter([item["id_categoria"] for item in raw_counts])
+
+            # 4. Asignar el conteo a cada categoría
+            for cat in categorias:
+                cat["numero_productos"] = conteo_map.get(cat["id_categoria"], 0)
+        else:
+            # Si no hay categorías, no hay nada que contar
+            for cat in categorias:
+                cat["numero_productos"] = 0
+
+        return [CategoriaRead(**c) for c in categorias]
+
+    except Exception as e:
+        logger.error(f"Error getting categories: {e}")
+        return []
 
 
-@router.post("/categorias/", response_model=Categoria, status_code=status.HTTP_201_CREATED)
-def create_categoria(
-    categoria: CategoriaCreate,
-    db: Session = Depends(dependencies.get_db),
-    current_user: UserRead = Depends(dependencies.get_current_user)
+@router.get("/{categoria_id}", response_model=CategoriaRead)
+async def get_categoria(
+    categoria_id: UUID,
+    user_id: UUID = Depends(get_active_user_id),
 ):
     """
-    Crear una nueva categoría para el usuario actual.
+    Obtener una categoría específica.
     """
-    return crud_categoria.create_categoria(
-        db, 
-        categoria=categoria, 
-        usuario_id=current_user.idUsuario
-    )
+    try:
+        response = (
+            supabase_admin.get_table("categorias")
+            .select("*")
+            .eq("id_categoria", str(categoria_id))
+            .eq("id_usuario", str(user_id))
+            .execute()
+        )
+
+        if not response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Categoría no encontrada",
+            )
+
+        return response.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[ERROR] Categoria not found: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error obteniendo categoría. Por favor intenta más tarde.",
+        )
 
 
-@router.put("/categorias/{categoria_id}", response_model=Categoria)
-def update_categoria(
-    categoria_id: int,
-    categoria: CategoriaUpdate,
-    db: Session = Depends(dependencies.get_db),
-    current_user: UserRead = Depends(dependencies.get_current_user)
+# ✅ SIN BARRA AL FINAL (Standard REST)
+@router.post("/", response_model=CategoriaRead, status_code=status.HTTP_201_CREATED)
+async def create_categoria(
+    categoria: CategoriaCreate,
+    user_id: UUID = Depends(get_active_user_id),
+):
+    """
+    Crear una nueva categoría.
+    """
+    try:
+        payload = {
+            "id_usuario": str(user_id),
+            "nombre": categoria.nombre,
+            "color": categoria.color,
+        }
+        logger.info(f"[INFO] Creating categoria: {payload}")
+        response = supabase_admin.get_table("categorias").insert(payload).execute()
+
+        if not response.data or len(response.data) == 0:
+            logger.error(f"[ERROR] Insert returned empty data: {response}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error creando categoría. Por favor intenta más tarde.",
+            )
+
+        logger.info(f"[INFO] Categoria created: {response.data}")
+        return response.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_str = str(e).lower()
+        logger.error(f"[ERROR] Failed to create categoria: {e}", exc_info=True)
+        if "42501" in error_str or "permission denied" in error_str:
+            logger.warning(f"[WARNING] RLS blocked categoria creation")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permisos para crear categorías.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error creando categoría. Por favor intenta más tarde.",
+        )
+
+
+@router.put("/{categoria_id}", response_model=CategoriaRead)
+async def update_categoria(
+    categoria_id: UUID,
+    categoria: CategoriaCreate,
+    user_id: UUID = Depends(get_active_user_id),
 ):
     """
     Actualizar una categoría existente.
     """
-    updated_categoria = crud_categoria.update_categoria(
-        db, 
-        categoria_id=categoria_id, 
-        categoria=categoria,
-        usuario_id=current_user.idUsuario
-    )
-    if not updated_categoria:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Categoría no encontrada"
+    try:
+        response = (
+            supabase_admin.get_table("categorias")
+            .update({"nombre": categoria.nombre, "color": categoria.color})
+            .eq("id_categoria", str(categoria_id))
+            .eq("id_usuario", str(user_id))
+            .execute()
         )
-    return updated_categoria
+
+        if not response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Categoría no encontrada",
+            )
+
+        return response.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[ERROR] Failed to update categoria: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error actualizando categoría. Por favor intenta más tarde.",
+        )
 
 
-@router.delete("/categorias/{categoria_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_categoria(
-    categoria_id: int,
-    db: Session = Depends(dependencies.get_db),
-    current_user: UserRead = Depends(dependencies.get_current_user)
+@router.delete("/{categoria_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_categoria(
+    categoria_id: UUID,
+    user_id: UUID = Depends(get_active_user_id),
 ):
     """
-    Eliminar una categoría.
+    Eliminar una categoría (Soft Delete).
     """
-    success = crud_categoria.delete_categoria(
-        db, 
-        categoria_id=categoria_id,
-        usuario_id=current_user.idUsuario
-    )
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Categoría no encontrada"
+    try:
+        response = (
+            supabase_admin.get_table("categorias")
+            .update({"fecha_eliminacion": datetime.now(timezone.utc).isoformat()})
+            .eq("id_categoria", str(categoria_id))
+            .eq("id_usuario", str(user_id))
+            .execute()
         )
-    return None
-
-
-# Endpoints adicionales para gestionar relación Producto-Categoría
-
-@router.post("/productos/{producto_id}/categorias/{categoria_id}", status_code=status.HTTP_201_CREATED)
-def asignar_categoria_a_producto(
-    producto_id: int,
-    categoria_id: int,
-    db: Session = Depends(dependencies.get_db),
-    current_user: UserRead = Depends(dependencies.get_current_user)
-):
-    """
-    Asignar una categoría a un producto.
-    """
-    # Verificar que la categoría pertenece al usuario
-    categoria = crud_categoria.get_categoria(db, categoria_id, current_user.idUsuario)
-    if not categoria:
+        return None
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[ERROR] Failed to delete categoria: {e}")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Categoría no encontrada"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error eliminando categoría. Por favor intenta más tarde.",
         )
-    
-    # TODO: Verificar que el producto pertenece al usuario
-    
-    return crud_categoria.asignar_categoria_a_producto(db, producto_id, categoria_id)
-
-
-@router.delete("/productos/{producto_id}/categorias/{categoria_id}", status_code=status.HTTP_204_NO_CONTENT)
-def quitar_categoria_de_producto(
-    producto_id: int,
-    categoria_id: int,
-    db: Session = Depends(dependencies.get_db),
-    current_user: UserRead = Depends(dependencies.get_current_user)
-):
-    """
-    Quitar una categoría de un producto.
-    """
-    success = crud_categoria.quitar_categoria_de_producto(db, producto_id, categoria_id)
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Relación producto-categoría no encontrada"
-        )
-    return None
-
-
-

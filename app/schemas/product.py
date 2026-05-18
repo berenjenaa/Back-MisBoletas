@@ -1,66 +1,70 @@
-from pydantic import BaseModel, Field
-from datetime import date
-from typing import Optional, List, TYPE_CHECKING
+from pydantic import BaseModel, Field, ConfigDict
+from datetime import date, datetime
+from typing import Optional, List
+from decimal import Decimal
+from uuid import UUID
 
-if TYPE_CHECKING:
-    from app.schemas.categorias import Categoria
 
 # ===== SCHEMA SIMPLIFICADO PARA CATEGORÍA EN PRODUCTO =====
 class CategoriaSimple(BaseModel):
     """Schema simplificado de categoría para incluir en productos"""
-    CategoriaID: int
-    NombreCategoria: str
-    Color: str
-    
-    class Config:
-        from_attributes = True
 
-# ===== SCHEMAS CORREGIDOS - SIN CONFUSIÓN =====
+    id_categoria: UUID
+    nombre: str
+    color: Optional[str] = None
 
-# Schema para LEER productos (respuestas de API)
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ===== SCHEMAS PARA PRODUCTOS (SUPABASE) =====
+
+
 class ProductRead(BaseModel):
-    ProductoID: int
-    NombreProducto: str
-    FechaCompra: Optional[date] = None
-    DuracionGarantia: Optional[int] = None
-    Marca: Optional[str] = None
-    Modelo: Optional[str] = None
-    Tienda: Optional[str] = None
-    Notas: Optional[str] = None
-    UsuarioID: int
-    categorias: List[CategoriaSimple] = []  # NUEVO: Lista de categorías del producto
+    """Schema para leer un producto desde Supabase."""
 
-    class Config:
-        from_attributes = True
+    id_producto: UUID
+    id_usuario: UUID
+    nombre: str
+    fecha_compra: Optional[date] = None
+    duracion_garantia_meses: Optional[int] = None
+    marca: Optional[str] = None
+    modelo: Optional[str] = None
+    tienda: Optional[str] = None
+    notas: Optional[str] = None
+    precio: Optional[Decimal] = Field(None, decimal_places=2)  # DECIMAL(12,2)
+    id_organizacion: Optional[UUID] = None  # FK a organizaciones
+    fecha_creacion: Optional[str] = (
+        None  # Cambio: datetime → Optional[str] para compatibilidad con Supabase
+    )
+    numero_documentos: Optional[int] = 0  # Número de documentos asociados
 
-# Schema para CREAR productos (sin ID, campos obligatorios)
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ProductCreate(BaseModel):
-    NombreProducto: str = Field(..., min_length=1, max_length=255)
-    FechaCompra: Optional[date] = None
-    DuracionGarantia: Optional[int] = Field(None, ge=0, le=120)
-    Marca: Optional[str] = Field(None, max_length=100)      
-    Modelo: Optional[str] = Field(None, max_length=100)         
-    Tienda: Optional[str] = Field(None, max_length=255)       
-    Notas: Optional[str] = Field(None, max_length=5000)
-    categoria_id: Optional[int] = None  # NUEVO: Categoría del producto
-    # UsuarioID se asigna automáticamente desde el token
+    """Schema para crear un nuevo producto."""
 
-# Schema para ACTUALIZAR productos (todos los campos opcionales)
+    nombre: str = Field(..., min_length=1, max_length=255)
+    fecha_compra: Optional[date] = None
+    duracion_garantia_meses: Optional[int] = Field(None, ge=0, le=120)
+    marca: Optional[str] = Field(None, max_length=100)
+    modelo: Optional[str] = Field(None, max_length=100)
+    tienda: Optional[str] = Field(None, max_length=255)
+    precio: Optional[Decimal] = Field(None, decimal_places=2, ge=0)
+    id_organizacion: Optional[UUID] = None
+    notas: Optional[str] = Field(None, max_length=5000)
+    categoria_ids: Optional[List[UUID]] = []
+
+
 class ProductUpdate(BaseModel):
-    NombreProducto: Optional[str] = Field(None, min_length=1, max_length=255)
-    FechaCompra: Optional[date] = None
-    DuracionGarantia: Optional[int] = Field(None, ge=0, le=120)
-    Marca: Optional[str] = Field(None, max_length=100)                        
-    Modelo: Optional[str] = Field(None, max_length=100)                       
-    Tienda: Optional[str] = Field(None, max_length=255)                       
-    Notas: Optional[str] = Field(None, max_length=5000)                       
+    """Schema para actualizar un producto."""
 
-# Schema específico para actualizar solo notas (simplificado)
-class ProductNotesUpdate(BaseModel):
-    Notas: str = Field(..., max_length=5000)
-
-# ===== MANTENER Product PARA COMPATIBILIDAD (DEPRECATED) =====
-# TODO: Eliminar cuando se actualicen todos los imports
-class Product(ProductRead):
-    """DEPRECATED: Usar ProductRead en su lugar"""
-    pass
+    nombre: Optional[str] = Field(None, min_length=1, max_length=255)
+    fecha_compra: Optional[date] = None
+    duracion_garantia_meses: Optional[int] = Field(None, ge=0, le=120)
+    marca: Optional[str] = Field(None, max_length=100)
+    modelo: Optional[str] = Field(None, max_length=100)
+    tienda: Optional[str] = Field(None, max_length=255)
+    notas: Optional[str] = Field(None, max_length=5000)
+    precio: Optional[Decimal] = Field(None, decimal_places=2, ge=0)
+    id_organizacion: Optional[UUID] = None

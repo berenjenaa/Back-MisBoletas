@@ -1,56 +1,43 @@
-"""
-Esquemas Pydantic para validación de categorías.
-Soporta categorías personalizadas por usuario con colores.
-"""
-
-from pydantic import BaseModel, Field, field_validator
-from datetime import datetime
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from typing import Optional
+from uuid import UUID
 import re
 
-# Schema base de Categoría
+
+# Schema base
 class CategoriaBase(BaseModel):
-    nombre_categoria: str
-    color: str = "#007BFF"
-    
-    @field_validator('color')
+    nombre: str = Field(..., min_length=1, max_length=100)
+    color: str = Field(default="#E77573")
+
+    @field_validator("color")
     @classmethod
     def validate_color(cls, v: str) -> str:
-        """Valida que el color sea un código hexadecimal válido"""
-        if not re.match(r'^#[0-9A-Fa-f]{6}$', v):
-            raise ValueError('Color debe ser un código hexadecimal válido (ej: #FF0000)')
+        if not re.match(r"^#[0-9A-Fa-f]{6}$", v):
+            raise ValueError("Color inválido")
         return v.upper()
 
-# Schema para crear categoría
+
 class CategoriaCreate(CategoriaBase):
     pass
 
-# Schema para actualizar categoría
+
 class CategoriaUpdate(BaseModel):
-    nombre_categoria: Optional[str] = None
+    nombre: Optional[str] = Field(None, min_length=1, max_length=100)
     color: Optional[str] = None
-    
-    @field_validator('color')
+
+    @field_validator("color")
     @classmethod
     def validate_color(cls, v: Optional[str]) -> Optional[str]:
-        if v and not re.match(r'^#[0-9A-Fa-f]{6}$', v):
-            raise ValueError('Color debe ser un código hexadecimal válido (ej: #FF0000)')
+        if v and not re.match(r"^#[0-9A-Fa-f]{6}$", v):
+            raise ValueError("Color inválido")
         return v.upper() if v else None
 
-# Schema para respuestas de Categoría
-class Categoria(CategoriaBase):
-    categoriaid: int
-    usuarioid: int
-    
-    class Config:
-        from_attributes = True
 
-class CategoriaResponse(BaseModel):
-    """Schema para las respuestas de operaciones con categorías."""
-    message: str
-    categoriaid: Optional[int] = None
-    categoria: Optional[Categoria] = None
+class CategoriaRead(CategoriaBase):
+    id_categoria: UUID
+    id_usuario: UUID
+    fecha_creacion: Optional[str] = None
+    fecha_eliminacion: Optional[str] = None
+    numero_productos: int = 0
 
-# Schema extendido con conteo de productos
-class CategoriaWithProducts(Categoria):
-    TotalProductos: int = Field(default=0, description="Cantidad de productos en esta categoría")
+    model_config = ConfigDict(from_attributes=True)
